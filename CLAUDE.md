@@ -15,18 +15,18 @@
   - `/docs/reference/*.md` — **세션 시작 시 1차로 참조하는 경량 요약본** (glossary/schema/api-spec/policies/design-tokens, 2장 참고)
   - `/docs/source/*.docx` — **각 문서의 최신 확정본 원본** (아래 6종, 세부 rationale·특정 절 대조가 필요할 때만 열람):
     - `TFT_sLLM_PRD_v1.3_최종.docx` — 제품 요구사항 (무엇을·왜 만드는지, 확정본)
-    - `TFT_sLLM_개발설계서_v1.6.docx` — 기술 설계 (아키텍처·DB 스키마·API 명세)
+    - `TFT_sLLM_개발설계서_v1.7.docx` — 기술 설계 (아키텍처·DB 스키마·API 명세)
     - `TFT_sLLM_IA_v1.1.docx` — 정보구조(사이트맵·URL·화면-데이터 매핑)
     - `TFT_sLLM_화면설계서_v1.2.docx` — 화면별 컴포넌트·인터랙션·반응형 스펙 (Figma "TFT_Hideout" 연동)
     - `TFT_sLLM_디자인가이드_v1.0.docx` — 컬러·타이포그래피·컴포넌트 시각 규칙
     - `TFT_sLLM_요구사항정의서_v1.1.docx` — 요구사항 ID(FR-*, NFR-*) 단위 정리본
-  - `/docs/archive/*` — 구버전 초안(PRD v1.2, 개발설계서 v1.5, 화면설계서 v1.0/v1.1, IA v1.0, 요구사항정의서 v1.0, 브레인스토밍.md). **이 폴더는 참조하지 않는다** — 이력 보존용이며 최신 근거가 아니다.
+  - `/docs/archive/*` — 구버전 초안(PRD v1.2, 개발설계서 v1.5·v1.6, 화면설계서 v1.0/v1.1, IA v1.0, 요구사항정의서 v1.0, 브레인스토밍.md). **이 폴더는 참조하지 않는다** — 이력 보존용이며 최신 근거가 아니다.
   - `TFT_Hideout_WBS.xlsx` — 전체 작업분해구조(WBS), 94개 TASK. `테스트 요구사항` 컬럼(K열)에 TASK별 구체적 테스트 항목이 명시되어 있다
   - `진행현황.md` — **실제 개발은 이 파일 기준으로 진행한다**
   - `/docs/test-scenarios.md` — TEST-00에서 작성하는 정책·크리티컬 로직 테스트 시나리오 문서 (TEST-00 완료 후 생성됨)
   - `/docs/spike/*.md` — DATA-05~07 스파이크 결과 기록
 
-문서 간 내용이 다르면 PRD(v1.3) → 개발설계서(v1.6) → IA/화면설계서/디자인가이드 순으로 우선한다. `/docs/reference/*.md`는 원본을 압축한 요약본이므로, 원본과 다르면 원본이 맞다 — 이 경우 SET-15 TASK를 다시 열어 참조본을 갱신한다. 새 문서 버전이 나오면 이전 버전은 `/docs/archive/`로 옮기고 `/docs/source/`에는 항상 최신 확정본 1개만 유지한다.
+문서 간 내용이 다르면 PRD(v1.3) → 개발설계서(v1.7) → IA/화면설계서/디자인가이드 순으로 우선한다. `/docs/reference/*.md`는 원본을 압축한 요약본이므로, 원본과 다르면 원본이 맞다 — 이 경우 SET-15 TASK를 다시 열어 참조본을 갱신한다. 새 문서 버전이 나오면 이전 버전은 `/docs/archive/`로 옮기고 `/docs/source/`에는 항상 최신 확정본 1개만 유지한다.
 
 ---
 
@@ -80,7 +80,7 @@
 | 백엔드 | FastAPI(Python), Render 무료 컨테이너, 단일 앱 내 3개 라우터(catalog/chat/analysis) |
 | 구조화 DB | PostgreSQL (Supabase 무료) |
 | 벡터 DB | pgvector (Supabase 내장, HNSW 인덱스) |
-| 캐시 | Redis (Upstash 무료) |
+| 캐시 | PostgreSQL 테이블 (`chat_answer_cache`, `puuid_cache`) — 별도 캐시 인프라 없이 구조화 DB 재사용 (v1.7, 이전 Redis/Upstash) |
 | LLM 추론 | Groq API 무료 티어 · Llama 3.3 70B Versatile |
 | 임베딩 | BGE-M3 (Hugging Face Inference API) |
 | RAG 프레임워크 | LangChain (Python) |
@@ -212,3 +212,4 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.2 | 2026-07-30 | PM 리뷰 반영 — 2장 "세션 시작 시 컨텍스트 로딩 규칙" 신설(토큰 최소화를 위한 최소 읽기 세트, TASK 그룹별 참조 파일 매핑, 세션 종료 시 지식 기록 규칙). `/docs/reference/*.md` 5종(glossary/schema/api-spec/policies/design-tokens) 신규 작성 및 SET-15 TASK로 반영, 전체 93개 TASK로 갱신. 전 섹션 번호 재정렬(2장 삽입에 따라 기존 2~10장이 3~11장으로 이동) |
 | v1.3 | 2026-07-30 | 근거 문서 원본을 저장소 루트에서 `/docs/source/`(최신 확정본 6종)와 `/docs/archive/`(구버전 초안·브레인스토밍, 참조 금지)로 재정리. 1장·5장·6장의 문서 경로 표기를 `/docs/source/...`로 갱신 |
 | v1.4 | 2026-07-30 | PM 결정 반영 — 향후 저장소를 포트폴리오 목적으로 public 전환할 가능성을 대비해 10.2절에 "fixture는 합성 데이터로만 구성" 규칙 추가. `/docs/reference/policies.md`에 11번(테스트 fixture 프라이버시) 신설. REL-05(포트폴리오 공개 전환 준비 체크리스트) TASK를 배포릴리즈 그룹 마지막에 신규 추가, 전체 94개 TASK로 갱신 |
+| v1.5 | 2026-07-31 | PM 결정 반영 — Redis(Upstash) 제거, 캐싱을 PostgreSQL 테이블(`chat_answer_cache`, `puuid_cache`) 기반으로 전환. 3장 기술스택 표 갱신, 근거 문서를 개발설계서 v1.7(3장·4.6절·5장·7장·9장 갱신, `/docs/source/`)로 교체하고 구버전 v1.6은 `/docs/archive/`로 이동. WBS SET-05(Upstash Redis 생성) 취소, DATA-03/DATA-15/CHAT-08 TASK 설명을 Postgres 기반으로 갱신(진행현황.md·WBS.xlsx 동시 반영). TASK 수는 94개 유지(SET-05는 취소 상태로 코드 결번 보존) |
