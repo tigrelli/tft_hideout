@@ -15,3 +15,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Echo success
         run: echo "workflow_dispatch 수동 트리거 성공"
+      - name: Check secret is readable (value not logged)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret set: true"
+          else
+            echo "DATABASE_URL secret set: false"
+          fi
