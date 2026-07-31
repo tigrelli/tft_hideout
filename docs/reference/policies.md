@@ -60,3 +60,17 @@
 
 - 개인 또는 소규모 비공개 커뮤니티 용도로만 사용, 이용자 규모 본인+지인 약 10명으로 제한
 - 상업적 이용/RSO 로그인 전환은 범위 외(PRD 14장 백로그)
+
+## 11. 테스트 fixture 프라이버시 (공개 전환 대비, PM 결정 2026-07-30)
+
+- 배경: 이 저장소는 무료 인프라로 운영하되 추후 포트폴리오 목적으로 public 전환 가능성이 있다(비용과 무관, GitHub 설정 사항). private→public 전환 시 과거 커밋 히스토리 전체가 노출되므로, 처음부터 히스토리에 민감정보가 쌓이지 않게 관리해야 나중에 히스토리 재작성 없이 안전하게 전환할 수 있다
+- 규칙: op.gg/Riot API 스파이크(DATA-05~07)로 확인하는 것은 응답 **스키마(필드 구조)**이고, pytest fixture에 실제로 박아넣는 **값**은 반드시 합성(가짜) 데이터로 치환한다. 실제 Riot ID(게임명#태그)·PUUID·상대 닉네임·실제 매치 결과를 fixture 파일에 그대로 커밋하지 않는다
+- 추가 조치(REL-05, public 전환 직전 1회): (1) gitleaks 등으로 커밋 히스토리 전체 시크릿 스캔 (2) fixture 전수 조사로 실데이터 잔존 여부 확인 (3) README에 "Riot Games와 무관한 비공식 팬 프로젝트" 디스클레이머 추가 (4) 라이브 URL 공개 여부 결정 (5) 공개 시 챗봇/전적조회 진입점에 경량 봇 방지(예: Cloudflare Turnstile) 적용 검토
+- 담당 TASK: DATA-08~11(합성 fixture 작성 시점), REL-05(전환 직전 체크리스트) | 저장소 visibility 변경은 REL-05 완료 및 PM 승인 후에만 실행
+
+## 12. 자동화 테스트용 DB 분리 (PM 결정 2026-07-31)
+
+- 배경: SET-04에서 생성한 Supabase 프로젝트는 개발·운영 겸용 실 DB다. 여기에 자동화 테스트(pytest)가 직접 붙으면 운영 데이터 오염, 무료 티어 커넥션/용량 소모, 네트워크 의존으로 인한 테스트 불안정 문제가 생긴다
+- 규칙: `pytest` 기반 DB/마이그레이션 테스트(TEST-01)와 스코어링 로직 테스트는 로컬/CI에서 `docker-compose.test.yml`로 띄운 `pgvector/pgvector:pg16` 컨테이너(포트 5433, tmpfs 기반 휘발성 데이터)에 Alembic 마이그레이션을 매번 새로 적용해 실행한다. SET-04 Supabase 프로젝트는 실제 배포 앱과 1회성 스모크 체크(연결 확인)에만 사용하고, 반복 실행되는 테스트 스위트 대상으로 삼지 않는다
+- 실행: `docker compose -f docker-compose.test.yml up -d` → `postgresql://postgres:postgres@localhost:5433/tft_hideout_test` 로 접속
+- 담당 TASK: DATA-01, TEST-01, SET-14(CI에서도 동일 컨테이너 사용)

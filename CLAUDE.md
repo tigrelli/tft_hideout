@@ -15,18 +15,18 @@
   - `/docs/reference/*.md` — **세션 시작 시 1차로 참조하는 경량 요약본** (glossary/schema/api-spec/policies/design-tokens, 2장 참고)
   - `/docs/source/*.docx` — **각 문서의 최신 확정본 원본** (아래 6종, 세부 rationale·특정 절 대조가 필요할 때만 열람):
     - `TFT_sLLM_PRD_v1.3_최종.docx` — 제품 요구사항 (무엇을·왜 만드는지, 확정본)
-    - `TFT_sLLM_개발설계서_v1.6.docx` — 기술 설계 (아키텍처·DB 스키마·API 명세)
+    - `TFT_sLLM_개발설계서_v1.7.docx` — 기술 설계 (아키텍처·DB 스키마·API 명세)
     - `TFT_sLLM_IA_v1.1.docx` — 정보구조(사이트맵·URL·화면-데이터 매핑)
     - `TFT_sLLM_화면설계서_v1.2.docx` — 화면별 컴포넌트·인터랙션·반응형 스펙 (Figma "TFT_Hideout" 연동)
     - `TFT_sLLM_디자인가이드_v1.0.docx` — 컬러·타이포그래피·컴포넌트 시각 규칙
     - `TFT_sLLM_요구사항정의서_v1.1.docx` — 요구사항 ID(FR-*, NFR-*) 단위 정리본
-  - `/docs/archive/*` — 구버전 초안(PRD v1.2, 개발설계서 v1.5, 화면설계서 v1.0/v1.1, IA v1.0, 요구사항정의서 v1.0, 브레인스토밍.md). **이 폴더는 참조하지 않는다** — 이력 보존용이며 최신 근거가 아니다.
-  - `TFT_Hideout_WBS.xlsx` — 전체 작업분해구조(WBS), 93개 TASK. `테스트 요구사항` 컬럼(K열)에 TASK별 구체적 테스트 항목이 명시되어 있다
+  - `/docs/archive/*` — 구버전 초안(PRD v1.2, 개발설계서 v1.5·v1.6, 화면설계서 v1.0/v1.1, IA v1.0, 요구사항정의서 v1.0, 브레인스토밍.md). **이 폴더는 참조하지 않는다** — 이력 보존용이며 최신 근거가 아니다.
+  - `TFT_Hideout_WBS.xlsx` — 전체 작업분해구조(WBS), 94개 TASK. `테스트 요구사항` 컬럼(K열)에 TASK별 구체적 테스트 항목이 명시되어 있다
   - `진행현황.md` — **실제 개발은 이 파일 기준으로 진행한다**
   - `/docs/test-scenarios.md` — TEST-00에서 작성하는 정책·크리티컬 로직 테스트 시나리오 문서 (TEST-00 완료 후 생성됨)
   - `/docs/spike/*.md` — DATA-05~07 스파이크 결과 기록
 
-문서 간 내용이 다르면 PRD(v1.3) → 개발설계서(v1.6) → IA/화면설계서/디자인가이드 순으로 우선한다. `/docs/reference/*.md`는 원본을 압축한 요약본이므로, 원본과 다르면 원본이 맞다 — 이 경우 SET-15 TASK를 다시 열어 참조본을 갱신한다. 새 문서 버전이 나오면 이전 버전은 `/docs/archive/`로 옮기고 `/docs/source/`에는 항상 최신 확정본 1개만 유지한다.
+문서 간 내용이 다르면 PRD(v1.3) → 개발설계서(v1.7) → IA/화면설계서/디자인가이드 순으로 우선한다. `/docs/reference/*.md`는 원본을 압축한 요약본이므로, 원본과 다르면 원본이 맞다 — 이 경우 SET-15 TASK를 다시 열어 참조본을 갱신한다. 새 문서 버전이 나오면 이전 버전은 `/docs/archive/`로 옮기고 `/docs/source/`에는 항상 최신 확정본 1개만 유지한다.
 
 ---
 
@@ -80,7 +80,7 @@
 | 백엔드 | FastAPI(Python), Render 무료 컨테이너, 단일 앱 내 3개 라우터(catalog/chat/analysis) |
 | 구조화 DB | PostgreSQL (Supabase 무료) |
 | 벡터 DB | pgvector (Supabase 내장, HNSW 인덱스) |
-| 캐시 | Redis (Upstash 무료) |
+| 캐시 | PostgreSQL 테이블 (`chat_answer_cache`, `puuid_cache`) — 별도 캐시 인프라 없이 구조화 DB 재사용 (v1.7, 이전 Redis/Upstash) |
 | LLM 추론 | Groq API 무료 티어 · Llama 3.3 70B Versatile |
 | 임베딩 | BGE-M3 (Hugging Face Inference API) |
 | RAG 프레임워크 | LangChain (Python) |
@@ -197,6 +197,7 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 - **프레임워크**: 백엔드/배치 = `pytest`(+ FastAPI `TestClient`) · 프론트엔드 컴포넌트 = `Vitest` + `React Testing Library` · 프론트엔드 E2E = `Playwright`(TEST-08이 전체 플로우 통합) · RAG 품질 = `RAGAS`(KPI-02).
 - **사전 시나리오 정의(TEST-00)**: 정책 준수·크리티컬 계산 로직이 걸린 TASK(`API-05`, `CHAT-04`, `CHAT-06`, `PGA-04`, `PGA-05`, `PGA-06`, `PGA-07`, `PGA-09`, `DATA-13`)는 구현에 착수하기 전에 `/docs/test-scenarios.md`에 입력값·기대출력·경계값을 표로 정리하고 PM 합의를 받는다(TEST-00, 진행현황.md "테스트 시나리오 사전 정의 현황" 표 참고). 이 문서가 곧 해당 TASK의 테스트 케이스 초안이 된다.
 - **외부 API 목(mock) 정책**: 자동화 테스트에서 op.gg MCP·Riot API·Groq·Hugging Face를 실제로 호출하지 않는다. DATA-05~07 스파이크 결과를 기반으로 한 고정 fixture(JSON)를 사용해 Personal Key 레이트리밋·무료 티어 한도를 테스트에서 소모하지 않는다. 실제 연동 확인은 각 SET-* 스모크 테스트(1회성)로 한정한다.
+- **fixture는 반드시 합성(가짜) 데이터로 구성**: op.gg/Riot API 스파이크(DATA-05~07)로 실제 응답 스키마(필드 구조)는 확인하되, pytest fixture에 박아넣는 값 자체는 실제 Riot ID·PUUID·닉네임·매치 데이터를 그대로 복사하지 않고 합성 값으로 치환한다(스키마는 실제, 값은 가짜). 이는 저장소를 향후 public으로 전환할 가능성(REL-05 참고)을 염두에 둔 조치로, 나중에 git 히스토리를 정리할 필요가 없게 만든다.
 - **CI 게이트(SET-14)**: PR 생성/push 시 GitHub Actions가 backend pytest와 frontend Vitest를 자동 실행하고, 실패 시 브랜치 보호 규칙으로 머지를 차단한다. 로컬에서 테스트를 건너뛰고 커밋하더라도 PR 단계에서 최종적으로 걸러진다.
 - **커밋 컨벤션**: Conventional Commits 접두어(`feat`/`fix`/`test`/`chore`/`docs`/`refactor`) + WBS 코드. 예: `test(PGA-04): 조합 이탈도 계산 단위 테스트 추가`, `fix(CHAT-06): Legend 승률 후처리 필터 누락 수정`.
 
@@ -210,3 +211,5 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.1 | 2026-07-30 | PM 리뷰 반영 — 9장 "코딩 컨벤션 및 테스트 규칙" 신설(언어별 컨벤션, TASK별 테스트 프레임워크, mock 정책, CI 게이트, 사전 테스트 시나리오 규칙). 워크플로우(3장)에 "테스트 작성" 단계 및 CI 통과 조건 추가. WBS에 `테스트 요구사항` 컬럼과 SET-14(CI 테스트 게이트)·TEST-00(핵심 시나리오 사전정의) TASK 추가되어 전체 92개 TASK로 갱신 |
 | v1.2 | 2026-07-30 | PM 리뷰 반영 — 2장 "세션 시작 시 컨텍스트 로딩 규칙" 신설(토큰 최소화를 위한 최소 읽기 세트, TASK 그룹별 참조 파일 매핑, 세션 종료 시 지식 기록 규칙). `/docs/reference/*.md` 5종(glossary/schema/api-spec/policies/design-tokens) 신규 작성 및 SET-15 TASK로 반영, 전체 93개 TASK로 갱신. 전 섹션 번호 재정렬(2장 삽입에 따라 기존 2~10장이 3~11장으로 이동) |
 | v1.3 | 2026-07-30 | 근거 문서 원본을 저장소 루트에서 `/docs/source/`(최신 확정본 6종)와 `/docs/archive/`(구버전 초안·브레인스토밍, 참조 금지)로 재정리. 1장·5장·6장의 문서 경로 표기를 `/docs/source/...`로 갱신 |
+| v1.4 | 2026-07-30 | PM 결정 반영 — 향후 저장소를 포트폴리오 목적으로 public 전환할 가능성을 대비해 10.2절에 "fixture는 합성 데이터로만 구성" 규칙 추가. `/docs/reference/policies.md`에 11번(테스트 fixture 프라이버시) 신설. REL-05(포트폴리오 공개 전환 준비 체크리스트) TASK를 배포릴리즈 그룹 마지막에 신규 추가, 전체 94개 TASK로 갱신 |
+| v1.5 | 2026-07-31 | PM 결정 반영 — Redis(Upstash) 제거, 캐싱을 PostgreSQL 테이블(`chat_answer_cache`, `puuid_cache`) 기반으로 전환. 3장 기술스택 표 갱신, 근거 문서를 개발설계서 v1.7(3장·4.6절·5장·7장·9장 갱신, `/docs/source/`)로 교체하고 구버전 v1.6은 `/docs/archive/`로 이동. WBS SET-05(Upstash Redis 생성) 취소, DATA-03/DATA-15/CHAT-08 TASK 설명을 Postgres 기반으로 갱신(진행현황.md·WBS.xlsx 동시 반영). TASK 수는 94개 유지(SET-05는 취소 상태로 코드 결번 보존) |
