@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: ruff check
+        working-directory: backend
+        run: ruff check .
+      - name: ruff format --check
+        working-directory: backend
+        run: ruff format --check .
+      - name: pytest
+        working-directory: backend
+        run: pytest
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check frontend project exists
+        id: check
+        run: |
+          if [ -f frontend/package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Set up Node
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Vitest
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm test
+      - name: Skip (frontend not scaffolded yet)
+        if: steps.check.outputs.exists == 'false'
+        run: echo "frontend/package.json 없음 — FE-01 완료 전까지 스킵"

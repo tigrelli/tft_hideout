@@ -41,3 +41,11 @@ CLAUDE.md 10.2절 정책에 따라 이런 실제 배포/시크릿 확인은 CI�
 - `JAVA_OPTS=-Xmx400m`로 JVM 힙을 제한해도 실패함 — 힙 한도는 컨테이너 전체 메모리 상한과 별개이며, 메타스페이스·스레드 스택·JIT 코드캐시 등 부가 오버헤드만으로도 512MB를 초과하는 것으로 보임. Metabase 공식 권장 사양(최소 1GB)과 Render 무료 플랜(512MB 고정)이 애초에 안 맞는 조합
 - PM 결정 대기 상태로 보류. 재개 시 고려할 옵션: ① 더 공격적인 JVM 튜닝(`-Xmx256m` + `-XX:MaxMetaspaceSize`, `-XX:+UseSerialGC` 등) 후 재시도(무료 유지되나 배포 성공/안정성 불확실) ② Render 유료 플랜(Starter, 월 $7)으로 Metabase 서비스만 전환(CLAUDE.md "무료 인프라" 원칙에서 벗어나는 지출이라 별도 PM 승인 필요) ③ Metabase 대체 도구 검토(기술스택 변경이라 PM 결정 필요)
 - `render.yaml`에 Metabase 서비스 정의(`env: image`, `docker.io/metabase/metabase:latest`, `JAVA_OPTS=-Xmx400m`)를 추가했으나 위 사유로 아직 커밋/push 안 함(`task/SET-11` 브랜치 로컬에만 존재)
+
+## SET-14 (2026-08-03)
+
+- `.github/workflows/ci.yml` 신설: `backend-tests`(ruff check/format + pytest), `frontend-tests`(frontend/package.json 존재 여부로 조건부 실행, 아직 FE-01 전이라 스킵)
+- 더미 실패 테스트(`assert False`)를 임시로 추가해 PR #8(`task/SET-14` → `main`)에서 CI 실행 → `backend-tests` 실패(빨간 X, 18초) 정상 확인
+- GitHub Settings → Branches에서 `main`/`develop` 브랜치 보호 규칙(Require status checks: `backend-tests`, `frontend-tests`) 생성 시도 → **"Your protected branch rules for your branch won't be enforced on this private repository until you move to a GitHub Team or Enterprise organization account"** 경고, 규칙 목록에 "Not enforced"로 표시됨. 실제로 실패한 PR의 Merge 버튼(Confirm merge)이 비활성화되지 않고 그대로 활성 상태인 것도 확인 — **GitHub 무료 플랜(Private 저장소)은 브랜치 보호 규칙을 설정할 수는 있으나 실제 강제(enforce)하지 않는 제약**
+- PM 결정: 유료 전환(GitHub Pro, 월 $4) 없이 **소프트 게이트로 운영** — CI 실패 표시(빨간 X)는 PM이 머지 전 참고하는 신호로만 쓰고, 실제 머지 차단은 기존 워크플로우 규칙("PM 승인 후에만 커밋/머지")으로 대신함. 저장소가 향후 Public 전환(REL-05)되거나 GitHub Pro로 업그레이드되면 동일 규칙이 자동으로 강제되기 시작하니 별도 재작업 불필요
+- 더미 테스트 제거 커밋 push 후 동일 PR에서 `backend-tests`/`frontend-tests` 모두 통과(초록 체크)로 전환되는지 PM 확인 예정
