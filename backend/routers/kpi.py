@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-router = APIRouter(prefix="/kpi", tags=["kpi"])
+router = APIRouter(prefix="/api/v1/kpi", tags=["kpi"])
 
 
 @router.get("/")

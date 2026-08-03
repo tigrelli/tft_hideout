@@ -18,7 +18,7 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def migrated_engine() -> Engine:
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     alembic_cfg = Config(str(BACKEND_DIR / "alembic.ini"))

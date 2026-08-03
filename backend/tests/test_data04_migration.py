@@ -52,7 +52,7 @@ def _seed_patch_and_docs(engine: Engine) -> None:
         session.commit()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def seeded_docs(migrated_engine: Engine) -> Engine:
     _seed_patch_and_docs(migrated_engine)
     return migrated_engine

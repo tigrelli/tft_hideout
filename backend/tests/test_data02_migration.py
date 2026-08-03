@@ -11,6 +11,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "patch_version",
         "name",
         "tier_rank",
+        "rank_tier",
         "avg_place",
         "play_rate",
         "win_rate",

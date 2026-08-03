@@ -102,6 +102,7 @@ class Comp(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     tier_rank: Mapped[str] = mapped_column(String, nullable=False)
+    rank_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="all")
     avg_place: Mapped[float] = mapped_column(Float, nullable=False)
     play_rate: Mapped[float] = mapped_column(Float, nullable=False)
     win_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
