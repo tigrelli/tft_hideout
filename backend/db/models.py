@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -88,3 +88,54 @@ class Augment(Base):
         Boolean, nullable=False, default=False
     )
     riot_augment_id: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class Comp(Base):
+    __tablename__ = "comps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patch_version: Mapped[str] = mapped_column(
+        String, ForeignKey("patches.version"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    tier_rank: Mapped[str] = mapped_column(String, nullable=False)
+    avg_place: Mapped[float] = mapped_column(Float, nullable=False)
+    play_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    win_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    playstyle_text: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class CompChampion(Base):
+    __tablename__ = "comp_champions"
+
+    comp_id: Mapped[int] = mapped_column(ForeignKey("comps.id"), primary_key=True)
+    champion_id: Mapped[int] = mapped_column(
+        ForeignKey("champions.id"), primary_key=True
+    )
+    is_carry: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    recommended_items: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class CompAugment(Base):
+    __tablename__ = "comp_augments"
+
+    comp_id: Mapped[int] = mapped_column(ForeignKey("comps.id"), primary_key=True)
+    augment_id: Mapped[int] = mapped_column(ForeignKey("augments.id"), primary_key=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class ChampionItemBuild(Base):
+    __tablename__ = "champion_item_builds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    champion_id: Mapped[int] = mapped_column(ForeignKey("champions.id"), nullable=False)
+    patch_version: Mapped[str] = mapped_column(
+        String, ForeignKey("patches.version"), nullable=False
+    )
+    item_combination: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    play_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_place: Mapped[float] = mapped_column(Float, nullable=False)
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False)
