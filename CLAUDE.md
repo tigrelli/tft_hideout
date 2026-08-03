@@ -25,6 +25,7 @@
   - `진행현황.md` — **실제 개발은 이 파일 기준으로 진행한다**
   - `/docs/test-scenarios.md` — TEST-00에서 작성하는 정책·크리티컬 로직 테스트 시나리오 문서 (TEST-00 완료 후 생성됨)
   - `/docs/spike/*.md` — DATA-05~07 스파이크 결과 기록
+  - `/docs/verification/smoke-tests.md` — SET-* 등 인프라 배포·시크릿 1회성 스모크 테스트 결과를 WBS 코드별로 기록(진행현황.md에는 요약 한 줄만 남기고, 상세 내용은 여기)
 
 문서 간 내용이 다르면 PRD(v1.3) → 개발설계서(v1.7) → IA/화면설계서/디자인가이드 순으로 우선한다. `/docs/reference/*.md`는 원본을 압축한 요약본이므로, 원본과 다르면 원본이 맞다 — 이 경우 SET-15 TASK를 다시 열어 참조본을 갱신한다. 새 문서 버전이 나오면 이전 버전은 `/docs/archive/`로 옮기고 `/docs/source/`에는 항상 최신 확정본 1개만 유지한다.
 
@@ -51,7 +52,7 @@
 
 | TASK 그룹 | 우선 참조 | 필요시에만(원본) |
 |---|---|---|
-| SET-* | 이 문서 5·10장 | 설계서 2·7장(인프라 스택 상세) |
+| SET-* | 이 문서 5·10장, `/docs/verification/smoke-tests.md`(과거 인프라 검증 이력) | 설계서 2·7장(인프라 스택 상세) |
 | DATA-* | `schema.md`, `/docs/spike/*.md`(스파이크 완료 후) | 개발설계서 4.3·5장 |
 | API-* | `schema.md`, `api-spec.md` | 개발설계서 4.2·6장 |
 | CHAT-* | `policies.md`, `glossary.md`(의도 4분류) | 개발설계서 4.4 전체 |
@@ -77,7 +78,7 @@
 | 영역 | 선택 |
 |---|---|
 | 프론트엔드 | Next.js(React), Tailwind CSS, Cloudflare Pages 배포 |
-| 백엔드 | FastAPI(Python), Render 무료 컨테이너, 단일 앱 내 3개 라우터(catalog/chat/analysis) |
+| 백엔드 | FastAPI(Python), Render 무료 컨테이너, 단일 앱 내 4개 라우터(catalog/chat/analysis/kpi) |
 | 구조화 DB | PostgreSQL (Supabase 무료) |
 | 벡터 DB | pgvector (Supabase 내장, HNSW 인덱스) |
 | 캐시 | PostgreSQL 테이블 (`chat_answer_cache`, `puuid_cache`) — 별도 캐시 인프라 없이 구조화 DB 재사용 (v1.7, 이전 Redis/Upstash) |
@@ -85,7 +86,7 @@
 | 임베딩 | BGE-M3 (Hugging Face Inference API) |
 | RAG 프레임워크 | LangChain (Python) |
 | 배치 스케줄러 | GitHub Actions (패치 감지 폴링 + 배치 워커) |
-| KPI 대시보드 | Metabase (Render 2번째 서비스) |
+| KPI 대시보드 | 자체 구현 페이지(`/kpi`, 비밀번호 게이트, GNB 미노출) + 백엔드 집계 API — Metabase는 Render 무료 플랜(512MB) OOM으로 배포 불가해 v1.8에서 대체(이전 계획: Metabase, Render 2번째 서비스) |
 | RAG 품질 평가 | RAGAS (주간 배치) |
 
 브레이크포인트: 모바일 `<768px` / 태블릿 `768~1023px` / 데스크톱 `1024px~` (Tailwind 기본 `md:`/`lg:` 그대로 매핑).
@@ -125,6 +126,7 @@
   /docs/source     - 근거 문서 원본의 최신 확정본만(docx 6종), 항상 이 폴더 것을 기준으로 삼는다
   /docs/archive    - 구버전 초안(참조 금지, 이력 보존용)
   /docs/spike      - DATA-05~07 스파이크 결과
+  /docs/verification - SET-* 등 인프라 배포·시크릿 1회성 스모크 테스트 결과
 ```
 
 ---
@@ -213,3 +215,5 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.3 | 2026-07-30 | 근거 문서 원본을 저장소 루트에서 `/docs/source/`(최신 확정본 6종)와 `/docs/archive/`(구버전 초안·브레인스토밍, 참조 금지)로 재정리. 1장·5장·6장의 문서 경로 표기를 `/docs/source/...`로 갱신 |
 | v1.4 | 2026-07-30 | PM 결정 반영 — 향후 저장소를 포트폴리오 목적으로 public 전환할 가능성을 대비해 10.2절에 "fixture는 합성 데이터로만 구성" 규칙 추가. `/docs/reference/policies.md`에 11번(테스트 fixture 프라이버시) 신설. REL-05(포트폴리오 공개 전환 준비 체크리스트) TASK를 배포릴리즈 그룹 마지막에 신규 추가, 전체 94개 TASK로 갱신 |
 | v1.5 | 2026-07-31 | PM 결정 반영 — Redis(Upstash) 제거, 캐싱을 PostgreSQL 테이블(`chat_answer_cache`, `puuid_cache`) 기반으로 전환. 3장 기술스택 표 갱신, 근거 문서를 개발설계서 v1.7(3장·4.6절·5장·7장·9장 갱신, `/docs/source/`)로 교체하고 구버전 v1.6은 `/docs/archive/`로 이동. WBS SET-05(Upstash Redis 생성) 취소, DATA-03/DATA-15/CHAT-08 TASK 설명을 Postgres 기반으로 갱신(진행현황.md·WBS.xlsx 동시 반영). TASK 수는 94개 유지(SET-05는 취소 상태로 코드 결번 보존) |
+| v1.6 | 2026-07-31 | PM 요청 반영 — SET-* 등 인프라 배포/시크릿 1회성 스모크 테스트 결과를 진행현황.md 요약과 별도로 상세 기록할 `/docs/verification/smoke-tests.md` 신설. 1장·2.3절·5장에 경로 및 참조 규칙 반영 |
+| v1.7 | 2026-08-03 | PM 결정 반영 — KPI 대시보드 도구를 Metabase에서 자체 구현으로 전환(SET-11 Metabase가 Render 무료 플랜 512MB에서 OOM으로 배포 불가, `/docs/verification/smoke-tests.md` SET-11 항목 참고). 3장 기술스택 표의 KPI 대시보드·백엔드 라우터 항목 갱신(4번째 라우터 `kpi` 추가). WBS SET-11 취소, KPI-01을 "KPI 대시보드 백엔드 API 구현(자체)"으로 재정의, 신규 FE-12(KPI 대시보드 페이지, `/kpi` 비밀번호 게이트·GNB 미노출) 추가 — 진행현황.md·WBS.xlsx 동시 반영, 전체 95개 TASK로 갱신(취소 2개: SET-05, SET-11). 근거 문서를 IA v1.2(`/docs/source/`, `/kpi` 페이지·사이트맵·URL구조·화면-데이터매핑 반영)로 교체하고 구버전 v1.1은 `/docs/archive/`로 이동 |

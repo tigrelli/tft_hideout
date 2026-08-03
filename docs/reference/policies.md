@@ -74,3 +74,10 @@
 - 규칙: `pytest` 기반 DB/마이그레이션 테스트(TEST-01)와 스코어링 로직 테스트는 로컬/CI에서 `docker-compose.test.yml`로 띄운 `pgvector/pgvector:pg16` 컨테이너(포트 5433, tmpfs 기반 휘발성 데이터)에 Alembic 마이그레이션을 매번 새로 적용해 실행한다. SET-04 Supabase 프로젝트는 실제 배포 앱과 1회성 스모크 체크(연결 확인)에만 사용하고, 반복 실행되는 테스트 스위트 대상으로 삼지 않는다
 - 실행: `docker compose -f docker-compose.test.yml up -d` → `postgresql://postgres:postgres@localhost:5433/tft_hideout_test` 로 접속
 - 담당 TASK: DATA-01, TEST-01, SET-14(CI에서도 동일 컨테이너 사용)
+
+## 13. KPI 대시보드 비밀번호 게이트 (PM 결정 2026-08-03, 4번 "인증 없음"의 예외)
+
+- 배경: KPI-01의 원래 계획(Metabase, Render 2번째 서비스)이 무료 플랜 512MB에서 OOM으로 배포 불가해, 자체 구현 페이지(`/kpi`)로 대체했다(`/docs/verification/smoke-tests.md` SET-11 항목). 이 페이지는 PM이 서비스 KPI(최신성/근거율/전환율/이용률/응답지연)를 확인하는 내부 전용 화면으로, 일반 이용자(웹사이트/챗봇)를 위한 것이 아니다
+- 예외 사유: 4번 정책("모든 API 인증 없음")은 카탈로그·챗봇·사후분석 등 이용자 대상 기능에 적용되는 원칙이다. `/kpi`는 이용자 대상이 아닌 PM 전용 내부 모니터링 화면이라 별도의 경량 접근 제어(회원가입/로그인 시스템이 아닌 단일 공유 비밀번호)를 둔다
+- 규칙: 환경변수 `KPI_DASHBOARD_PASSWORD`와 대조하는 `POST /kpi/auth`를 통과해야 `GET /kpi/summary` 등 나머지 `/kpi` API에 접근 가능(서명 토큰 방식, 세션/회원 개념 아님). GNB·모바일 드로어 등 어떤 내비게이션에도 링크를 노출하지 않고 URL을 아는 사람만 접근한다(IA v1.2 4.7절)
+- 담당 TASK: KPI-01(백엔드 게이트·집계 API), FE-12(프론트 게이트 UI) | 테스트: pytest로 비밀번호 성공/실패 케이스 검증(TEST-00 사전 시나리오 대상 아님 — 크리티컬 정책 로직이 아닌 내부 도구용 접근 제어)
