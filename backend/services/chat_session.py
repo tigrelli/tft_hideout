@@ -24,14 +24,22 @@ def validate_session_id(raw: str) -> str:
         ) from exc
 
 
-def get_session_history(db: Session, session_id: str) -> list[ChatLog]:
+RECENT_TURNS_LIMIT = 3
+
+
+def get_session_history(
+    db: Session, session_id: str, limit: int | None = None
+) -> list[ChatLog]:
     """동일 session_id로 기록된 chat_logs를 시간순으로 조회한다.
-    존재하지 않는(아직 대화가 없는) session_id는 빈 리스트를 반환한다."""
+    존재하지 않는(아직 대화가 없는) session_id는 빈 리스트를 반환한다.
+    limit이 주어지면 가장 최근 N턴만(시간순 정렬 유지) 반환한다."""
     validated = validate_session_id(session_id)
-    return list(
-        db.execute(
-            select(ChatLog)
-            .where(ChatLog.session_id == validated)
-            .order_by(ChatLog.created_at)
-        ).scalars()
-    )
+    stmt = select(ChatLog).where(ChatLog.session_id == validated)
+
+    if limit is None:
+        stmt = stmt.order_by(ChatLog.created_at)
+        return list(db.execute(stmt).scalars())
+
+    stmt = stmt.order_by(ChatLog.created_at.desc()).limit(limit)
+    recent = list(db.execute(stmt).scalars())
+    return list(reversed(recent))
