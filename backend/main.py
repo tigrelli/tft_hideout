@@ -3,9 +3,12 @@ import os
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from middleware.rate_limit import RateLimitMiddleware
 from routers import analysis, catalog, chat, kpi
 
 app = FastAPI()
+
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(catalog.router)
 app.include_router(chat.router)

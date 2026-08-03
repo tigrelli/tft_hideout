@@ -18,6 +18,17 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """RateLimitMiddleware(API-07)의 전역 버킷을 매 테스트마다 초기화해
+    테스트 간 요청 수 누적으로 인한 스퓨리어스 429를 방지한다."""
+    from middleware.rate_limit import reset_buckets
+
+    reset_buckets()
+    yield
+    reset_buckets()
+
+
 @pytest.fixture
 def migrated_engine() -> Engine:
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
