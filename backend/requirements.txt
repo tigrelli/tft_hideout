@@ -4,3 +4,4 @@ sqlalchemy
 alembic
 psycopg[binary]
 pgvector
+groq
