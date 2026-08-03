@@ -2,7 +2,14 @@ import os
 
 from fastapi import FastAPI
 
+from routers import analysis, catalog, chat, kpi
+
 app = FastAPI()
+
+app.include_router(catalog.router)
+app.include_router(chat.router)
+app.include_router(analysis.router)
+app.include_router(kpi.router)
 
 
 @app.get("/health")
