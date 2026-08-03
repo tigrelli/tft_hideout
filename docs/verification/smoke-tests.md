@@ -33,3 +33,11 @@ CLAUDE.md 10.2절 정책에 따라 이런 실제 배포/시크릿 확인은 CI�
 - GitHub Actions: 저장소 시크릿 `DATABASE_URL` 등록. `manual-smoke.yml`에 값 미노출 확인 스텝 추가 → 수동 실행 로그에 `DATABASE_URL secret set: true` 확인, 값 자체는 로그에 없음
 - Render: `tft-hideout-backend` 서비스에 `DATABASE_URL` 환경변수 등록 → 자동 재배포 후 `/env-check` → `{"database_url_set": true}` 확인
 - Cloudflare: 현재 `tft-hideout` Worker가 정적 assets 전용이라 "Variables cannot be added to a Worker that only has static assets" 제약으로 환경변수 등록 불가 확인. FE-01(Next.js 앱으로 전환 시 서버 진입점 생김)에서 함께 처리하기로 결정 — 그 전까지 프론트엔드용 시크릿/환경변수는 보류
+
+## SET-11 (2026-08-03, 시도 실패 — 보류)
+
+- `tft-hideout-backend`가 속한 Render 프로젝트는 Blueprint 동기화가 아니라 서비스 개별 수동 생성 방식으로 운영 중임을 확인(`render.yaml`에 서비스를 추가해도 자동 반영 안 됨). Metabase 서비스도 대시보드에서 "New service → Web Service → Deploy an existing image" 방식(`docker.io/metabase/metabase:latest`)으로 수동 생성해야 함
+- 무료 플랜(Free, 512MB RAM)으로 배포 시도 → **OOM으로 배포 실패**("Ran out of memory (used over 512MB) while running your code")
+- `JAVA_OPTS=-Xmx400m`로 JVM 힙을 제한해도 실패함 — 힙 한도는 컨테이너 전체 메모리 상한과 별개이며, 메타스페이스·스레드 스택·JIT 코드캐시 등 부가 오버헤드만으로도 512MB를 초과하는 것으로 보임. Metabase 공식 권장 사양(최소 1GB)과 Render 무료 플랜(512MB 고정)이 애초에 안 맞는 조합
+- PM 결정 대기 상태로 보류. 재개 시 고려할 옵션: ① 더 공격적인 JVM 튜닝(`-Xmx256m` + `-XX:MaxMetaspaceSize`, `-XX:+UseSerialGC` 등) 후 재시도(무료 유지되나 배포 성공/안정성 불확실) ② Render 유료 플랜(Starter, 월 $7)으로 Metabase 서비스만 전환(CLAUDE.md "무료 인프라" 원칙에서 벗어나는 지출이라 별도 PM 승인 필요) ③ Metabase 대체 도구 검토(기술스택 변경이라 PM 결정 필요)
+- `render.yaml`에 Metabase 서비스 정의(`env: image`, `docker.io/metabase/metabase:latest`, `JAVA_OPTS=-Xmx400m`)를 추가했으나 위 사유로 아직 커밋/push 안 함(`task/SET-11` 브랜치 로컬에만 존재)
