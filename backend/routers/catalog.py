@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -94,6 +95,13 @@ class ItemBuildsResponse(BaseModel):
     patch_version: str
     champion_id: int | None
     builds: list[ItemBuild]
+
+
+class CurrentPatchResponse(BaseModel):
+    version: str
+    set_number: int
+    released_at: datetime
+    detected_at: datetime
 
 
 @router.get("/")
@@ -237,4 +245,22 @@ def get_item_builds(
 
     return ItemBuildsResponse(
         patch_version=resolved_patch, champion_id=champion_id, builds=builds
+    )
+
+
+@router.get("/patches/current", response_model=CurrentPatchResponse)
+def get_current_patch(
+    db: Annotated[Session, Depends(get_db)],
+) -> CurrentPatchResponse:
+    current = db.execute(
+        select(Patch).where(Patch.is_current.is_(True))
+    ).scalar_one_or_none()
+    if current is None:
+        raise _not_found_error("no_current_patch", "현재 패치가 설정되어 있지 않습니다")
+
+    return CurrentPatchResponse(
+        version=current.version,
+        set_number=current.set_number,
+        released_at=current.released_at,
+        detected_at=current.detected_at,
     )
