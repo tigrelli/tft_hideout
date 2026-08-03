@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import Comp, CompAugment, CompChampion, Patch
+from db.models import ChampionItemBuild, Comp, CompAugment, CompChampion, Patch
 from db.session import get_db
 
 router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
@@ -45,6 +45,18 @@ def _not_found_error(code: str, message: str) -> HTTPException:
     )
 
 
+def _resolve_patch(db: Session, patch: str | None) -> str:
+    """patch 미지정 시 patches.is_current=True인 버전으로 대체한다."""
+    if patch is not None:
+        return patch
+    current = db.execute(
+        select(Patch).where(Patch.is_current.is_(True))
+    ).scalar_one_or_none()
+    if current is None:
+        raise _not_found_error("no_current_patch", "현재 패치가 설정되어 있지 않습니다")
+    return current.version
+
+
 class ChampionInComp(BaseModel):
     champion_id: int
     is_carry: bool
@@ -69,6 +81,21 @@ class CompDetailResponse(BaseModel):
     augments: list[AugmentInComp]
 
 
+class ItemBuild(BaseModel):
+    id: int
+    champion_id: int
+    item_combination: dict
+    play_rate: float
+    avg_place: float
+    win_rate: float
+
+
+class ItemBuildsResponse(BaseModel):
+    patch_version: str
+    champion_id: int | None
+    builds: list[ItemBuild]
+
+
 @router.get("/")
 def catalog_root() -> dict[str, str]:
     return {"router": "catalog"}
@@ -89,16 +116,7 @@ def get_tierlist(
             "invalid_rank", f"rank는 {sorted(ALLOWED_RANKS)} 중 하나여야 합니다"
         )
 
-    resolved_patch = patch
-    if resolved_patch is None:
-        current = db.execute(
-            select(Patch).where(Patch.is_current.is_(True))
-        ).scalar_one_or_none()
-        if current is None:
-            raise _not_found_error(
-                "no_current_patch", "현재 패치가 설정되어 있지 않습니다"
-            )
-        resolved_patch = current.version
+    resolved_patch = _resolve_patch(db, patch)
 
     comps = (
         db.execute(
@@ -181,4 +199,42 @@ def get_comp_detail(
         playstyle_text=comp.playstyle_text,
         champions=champions,
         augments=augments,
+    )
+
+
+@router.get("/items/builds", response_model=ItemBuildsResponse)
+def get_item_builds(
+    db: Annotated[Session, Depends(get_db)],
+    patch: str | None = Query(default=None),
+    champion_id: int | None = Query(default=None),
+) -> ItemBuildsResponse:
+    if patch is not None and not PATCH_PATTERN.match(patch):
+        raise _invalid_param_error(
+            "invalid_patch", "patch는 'MAJOR.MINOR' 형식이어야 합니다 (예: 14.5)"
+        )
+
+    resolved_patch = _resolve_patch(db, patch)
+
+    stmt = select(ChampionItemBuild).where(
+        ChampionItemBuild.patch_version == resolved_patch
+    )
+    if champion_id is not None:
+        stmt = stmt.where(ChampionItemBuild.champion_id == champion_id)
+    stmt = stmt.order_by(ChampionItemBuild.play_rate.desc())
+
+    rows = db.execute(stmt).scalars().all()
+    builds = [
+        ItemBuild(
+            id=row.id,
+            champion_id=row.champion_id,
+            item_combination=row.item_combination,
+            play_rate=row.play_rate,
+            avg_place=row.avg_place,
+            win_rate=row.win_rate,
+        )
+        for row in rows
+    ]
+
+    return ItemBuildsResponse(
+        patch_version=resolved_patch, champion_id=champion_id, builds=builds
     )
