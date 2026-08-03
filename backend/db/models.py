@@ -1,8 +1,11 @@
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+EMBEDDING_DIM = 1024  # BGE-M3
 
 
 class Base(DeclarativeBase):
@@ -267,3 +270,20 @@ class PuuidCache(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class MetaDocumentEmbedding(Base):
+    __tablename__ = "meta_document_embeddings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patch_version: Mapped[str] = mapped_column(
+        String, ForeignKey("patches.version"), nullable=False
+    )
+    doc_type: Mapped[str] = mapped_column(String, nullable=False)
+    source_table: Mapped[str] = mapped_column(String, nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(EMBEDDING_DIM), nullable=False
+    )
+    doc_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False)
