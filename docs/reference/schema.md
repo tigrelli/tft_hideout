@@ -17,7 +17,7 @@
 | `comp_champions` | comp_id, champion_id, is_carry, recommended_items(jsonb) | 조합-챔피언 매핑, 캐리 가중치 계산(PGA-04)의 기준 |
 | `comp_augments` | comp_id, augment_id, priority | 조합-증강체 매핑 |
 | `champion_item_builds` | id, champion_id, patch_version, item_combination(jsonb), play_rate, avg_place, win_rate | 챔피언별 아이템 빌드 |
-| `match_analyses` | id, match_id, puuid, patch_version, comp_deviation, item_concentration, augment_synergy, matched_comp_id(FK comps.id), coaching_text, created_at | 사후 패인 분석 결과 캐시. 동일 match_id+puuid 재요청 시 재사용(PGA-03) |
+| `match_analyses` | id, match_id, puuid, patch_version, comp_deviation, item_concentration, augment_synergy, matched_comp_id(FK comps.id, nullable), coaching_text, created_at | 사후 패인 분석 결과 캐시. 동일 match_id+puuid 재요청 시 재사용(PGA-03). matched_comp_id는 매칭되는 메타 조합이 없을 수 있어 nullable(DATA-03에서 확정) |
 
 ## 벡터 DB (pgvector)
 
@@ -34,6 +34,8 @@
 | `account_link_events` | id, riot_id_hash, region, event_type(link/analysis_request), match_id(nullable), latency_ms, created_at | 계정연동·분석요청 이벤트 |
 | `patch_detection_runs` | id, triggered_at, patch_version_before, patch_version_after, duration_ms, status | 자동 패치 감지 실행 로그 |
 | `ragas_eval_results` | id, eval_date, sample_query, faithfulness_score, answer_relevancy_score, patch_version | RAG 품질 주간 평가(Faithfulness·Answer Relevancy 2종만, Context Precision/Recall은 범위 제외) |
+| `chat_answer_cache` | id, cache_key(unique), patch_version, answer, created_at | 챗봇 첫 턴 답변 캐시(v1.7 신설, Redis 대체). cache_key=hash(정규화 질문+patch_version). patch_version 불일치로 자연 무효화, 패치 배치 완료 후 이전 patch_version 행은 DATA-15가 DELETE. DATA-03에서 컬럼 확정(개발설계서 v1.7 4.6절 캐시 전략 표 기반, 컬럼 단위 명세는 원래 없어 DATA-03 구현 시 신규 확정) |
+| `puuid_cache` | id, cache_key(unique), puuid, expires_at, created_at | Riot ID→PUUID 변환 결과 단기 캐시(v1.7 신설, Redis 대체). cache_key=hash(riot_id+region), expires_at=생성시점+1시간(Personal Key 레이트리밋 보호). DATA-03에서 컬럼 확정 |
 
 ## 정합성 규칙 (반드시 지킬 것)
 
