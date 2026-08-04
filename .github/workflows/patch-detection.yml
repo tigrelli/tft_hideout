@@ -1,13 +1,15 @@
 name: Patch Detection & Batch Collection
 
-# DATA-14: schedule 트리거는 아직 켜지 않았다(PM 결정, 2026-08-04).
-# PM이 workflow_dispatch로 먼저 1회 수동 실행해 실제 운영 DB(Supabase)에 대해
-# 검증한 뒤, 문제없으면 아래 schedule 블록의 주석을 해제해 매시간 자동 실행으로
-# 전환한다(PRD 9-1 설계). 그 전까지는 수동 실행으로만 동작한다.
+# DATA-14: workflow_dispatch로 프로덕션 검증 완료(2026-08-04, docs/verification/DATA-14-작업결과.md).
+# schedule은 매시간(PRD 9-1 원안) 대신 1일 1회(매일 03:00 KST)로 PM 결정(2026-08-04).
+# 이유: TFT 패치는 월 1~2회뿐이라 매시간 감지는 720회/월 중 대부분이 변경없음 확인으로
+# GitHub Actions 무료 분(2,000분/월, CI와 공유) 중 약 36%를 소모하는 반면, 1일 1회는
+# 약 1.5%만 소모. 패치 발생 후 최대 24시간 지연은 workflow_dispatch 수동 트리거로
+# 즉시 만회 가능(개인/지인 10명 규모 MVP라 실질 영향 없음).
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "0 * * * *"
+  schedule:
+    - cron: "0 18 * * *" # 매일 18:00 UTC = 03:00 KST(다음날)
 
 concurrency:
   group: patch-detection

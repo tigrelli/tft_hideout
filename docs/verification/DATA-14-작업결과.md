@@ -1,7 +1,7 @@
 # DATA-14 : 작업결과
 
 - **TASK**: 배치 동시 실행 방지 구현
-- **상태**: 완료(PM 확인 요청 중) — 동시 실행 방지·프로덕션 최초 성공 실행까지 검증 완료(2026-08-04)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-12
 - **근거 문서**: 설계서 4.3
 - **변경 파일**: `.github/workflows/patch-detection.yml`(신규), `batch/run_patch_batch.py`(신규 — DATA-12~13 배선), `batch/README.md`, `backend/db/session.py`·`batch/db_session.py`(DB URL 드라이버 보정, 검증 중 발견), `backend/alembic/env.py`(위 보정 재사용, 검증 중 발견), `render.yaml`(alembic 자동 적용, 검증 중 발견 — 단 Render Build Command는 대시보드에서 별도 수동 반영 필요했음, 아래 참고)
@@ -27,7 +27,7 @@ concurrency 그룹은 "돌아가는 워크플로우"에 붙는 설정이라, 이
 
 1. ~~`HUGGINGFACE_API_KEY`(및 필요 시 `GROQ_API_KEY`)가 GitHub Actions 저장소 시크릿으로 등록돼 있는지 확인~~ → **확인 완료**: `gh secret list`로 `DATABASE_URL`(2026-07-31 등록), `HUGGINGFACE_API_KEY`(2026-08-04 등록) 둘 다 존재 확인. `GROQ_API_KEY`는 이 워크플로우의 env에 애초에 필요 없음(patch-detection은 Groq를 쓰지 않음, CHAT-05에서만 필요).
 2. ~~main 머지 후 `workflow_dispatch`를 짧은 간격으로 2번 트리거해 동시 실행 방지(대기열) 동작 직접 확인~~ → **확인 완료**: 06:58:48/06:58:55(UTC) 7초 간격으로 2회 트리거(run 30885970214, 30885977450). 로그 타임스탬프 대조 결과 두 번째 실행의 실제 스텝은 첫 번째가 끝난 뒤(06:59:15 이후)에 시작 → `cancel-in-progress: false`대로 취소 없이 순차 대기·실행됨을 확인. **DATA-14 핵심 목적(동시 실행 방지) 검증 완료.**
-3. `schedule` 트리거 활성화 여부는 아래 4번 이슈 해결 후 PM이 별도 결정하기로 함(아직 미결정, `patch-detection.yml`의 `schedule` 블록은 계속 주석 처리 상태 유지)
+3. **`schedule` 트리거 활성화 완료(2026-08-04, PM 승인)**: 매시간(PRD 9-1 원안) 대신 **1일 1회(매일 03:00 KST = `cron: "0 18 * * *"`)**로 결정. TFT 패치는 월 1~2회뿐이라 매시간 감지는 GitHub Actions 무료 분(2,000분/월, CI와 공유)의 약 36%(720분/월)를 소모하는 반면 1일 1회는 약 1.5%(30분/월)만 소모 — 개인/지인 10명 규모 MVP에서 매시간 감지의 이점(최대 1시간 지연)이 예산 절감(CI에 배정 가능한 여유 확보)보다 크지 않다고 판단. 패치 발생 후 최대 24시간 지연은 `workflow_dispatch` 수동 트리거(이미 동작 확인됨)로 즉시 만회 가능.
 
 ## 검증 중 발견하고 해결한 프로덕션 이슈 3건 (2026-08-04)
 
