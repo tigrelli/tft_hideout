@@ -1,7 +1,7 @@
 # DATA-12 : 작업결과
 
 - **TASK**: 자동 패치 감지 트리거 구현
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-08, SET-08
 - **근거 문서**: PRD 9-1·설계서 4.3
 - **변경 파일**: `batch/patch_detection.py`(신규), `batch/tests/test_data12_patch_detection.py`(신규)
