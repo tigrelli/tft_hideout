@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* 디자인 토큰 원본: /docs/reference/design-tokens.md (디자인가이드 v1.0 3~6장 경량 참조본) */
+@theme {
+  --color-primary: #4059d9;
+  --color-accent-carry: #e59933;
+
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #666666;
+  --color-text-tertiary: #8c8c8c;
+  --color-text-on-brand: #ffffff;
+
+  --color-surface-card: #ffffff;
+  --color-surface-page: #f7f7f7;
+  --color-surface-user-bubble: #e5e8ff;
+
+  --color-border-default: #d9d9d9;
+  --color-border-input: #cccccc;
+
+  --color-tier-s: #e5b93d;
+  --color-tier-a: #8c6fe0;
+  --color-tier-b: #4c9be0;
+  --color-tier-c: #8c8c8c;
+
+  --font-sans:
+    var(--font-inter), "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+
+  --text-display: 22px;
+  --text-display--font-weight: 700;
+  --text-h1: 20px;
+  --text-h1--font-weight: 700;
+  --text-h2: 17px;
+  --text-h2--font-weight: 700;
+  --text-label: 12px;
+  --text-label--font-weight: 600;
+  --text-body: 14px;
+  --text-body--font-weight: 400;
+  --text-caption: 12px;
+  --text-caption--font-weight: 400;
+
+  --radius-card: 8px;
+  --radius-badge: 4px;
+  --radius-control: 6px;
+  --radius-bubble: 10px;
+}
+
+body {
+  background: var(--color-surface-page);
+  color: var(--color-text-primary);
+}

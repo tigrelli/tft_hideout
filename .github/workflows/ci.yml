@@ -67,16 +67,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         if: steps.check.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        run: npm ci
+      - name: ESLint
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run lint
+      - name: Prettier --check
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run format:check
       - name: Vitest
         if: steps.check.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm test
+        run: npm test
+      - name: Next build (static export)
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run build
       - name: Skip (frontend not scaffolded yet)
         if: steps.check.outputs.exists == 'false'
         run: echo "frontend/package.json 없음 — FE-01 완료 전까지 스킵"

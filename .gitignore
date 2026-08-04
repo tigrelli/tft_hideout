@@ -9,6 +9,8 @@ node_modules/
 out/
 frontend/node_modules/
 frontend/.next/
+frontend/next-env.d.ts
+*.tsbuildinfo
 
 # Python (backend / batch)
 __pycache__/

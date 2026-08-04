@@ -2,4 +2,4 @@ name = "tft-hideout"
 compatibility_date = "2026-07-31"
 
 [assets]
-directory = "./frontend"
+directory = "./frontend/out"
