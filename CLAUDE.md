@@ -58,7 +58,7 @@
 | API-* | `schema.md`, `api-spec.md` | 개발설계서 4.2·6장 |
 | CHAT-* | `policies.md`, `glossary.md`(의도 4분류) | 개발설계서 4.4 전체 |
 | PGA-* | `schema.md`, `/docs/test-scenarios.md`(TEST-00 완료본) | 개발설계서 4.5 전체 |
-| FE-* | `design-tokens.md`, 화면설계서의 **해당 화면 절만** | 디자인가이드 전체, Figma MCP |
+| FE-* | `design-tokens.md`, 화면설계서의 **해당 화면 절만** | 디자인가이드 전체(Figma는 SET-12 취소로 미사용) |
 | KPI-* | `schema.md`(로그 테이블) | PRD 3-3 |
 | TEST-* | 대상 TASK들의 WBS 행 + `/docs/test-scenarios.md` | - |
 
@@ -133,15 +133,13 @@
 
 ---
 
-## 6. 프론트엔드 작업 시 디자인 스킬 사용 규칙 (SET-12 연계)
+## 6. 프론트엔드 작업 시 디자인 스킬 사용 규칙 (SET-12 취소 반영)
 
-FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새로 정의하지 말고 아래 소스를 우선 참조한다.
+FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새로 정의하지 말고 아래 소스를 우선 참조한다. SET-12(Figma MCP 연동)는 2026-08-04 PM 결정으로 취소되었으므로 **Figma는 참조하지 않는다** — 아래 2개 소스만으로 진행한다.
 
 1. **`/docs/reference/design-tokens.md`** — 컬러 토큰, 타이포그래피, spacing, 컴포넌트 반경 등 확정 값의 1차 참조(2장 원칙). 상세 배경이 필요할 때만 디자인가이드 원본(`/docs/source/TFT_sLLM_디자인가이드_v1.0.docx`) 확인.
-2. **Figma 파일** "TFT_Hideout" (화면설계서 v1.2에 URL 기재) — 데스크톱 와이어프레임 원본. Figma MCP(Dev Mode)가 연결되어 있다면 `get_design_context`/`get_screenshot` 등으로 실제 프레임을 조회해 구현과 대조한다.
-3. **화면설계서**(`/docs/source/TFT_sLLM_화면설계서_v1.2.docx`) — 해당 TASK가 다루는 화면 절만 열람(화면별 컴포넌트 목록·상태(state)·반응형 동작표).
-4. Cowork/Claude Code 환경에 `screen-design-generator` 스킬 또는 Figma MCP 커넥터가 설치되어 있지 않다면, 새 FE-* TASK를 시작하기 전에 PM에게 설치를 요청한다(1회성 설정, SET-12).
-5. 디자인가이드·화면설계서에 "디자인 재량"/"미확정"으로 표시된 항목(티어 배지 색상 등)은 `design-tokens.md` 하단 "미확정 항목"의 권장안을 기본값으로 채택하고, 변경이 필요하면 구현 전에 PM에게 확인한다.
+2. **화면설계서**(`/docs/source/TFT_sLLM_화면설계서_v1.2.docx`) — 해당 TASK가 다루는 화면 절만 열람(화면별 컴포넌트 목록·상태(state)·반응형 동작표).
+3. 디자인가이드·화면설계서에 "디자인 재량"/"미확정"으로 표시된 항목(티어 배지 색상 등)은 `design-tokens.md` 하단 "미확정 항목"의 권장안을 기본값으로 채택하고, 변경이 필요하면 구현 전에 PM에게 확인한다.
 
 ---
 
@@ -220,3 +218,4 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.6 | 2026-07-31 | PM 요청 반영 — SET-* 등 인프라 배포/시크릿 1회성 스모크 테스트 결과를 진행현황.md 요약과 별도로 상세 기록할 `/docs/verification/smoke-tests.md` 신설. 1장·2.3절·5장에 경로 및 참조 규칙 반영 |
 | v1.7 | 2026-08-03 | PM 결정 반영 — KPI 대시보드 도구를 Metabase에서 자체 구현으로 전환(SET-11 Metabase가 Render 무료 플랜 512MB에서 OOM으로 배포 불가, `/docs/verification/smoke-tests.md` SET-11 항목 참고). 3장 기술스택 표의 KPI 대시보드·백엔드 라우터 항목 갱신(4번째 라우터 `kpi` 추가). WBS SET-11 취소, KPI-01을 "KPI 대시보드 백엔드 API 구현(자체)"으로 재정의, 신규 FE-12(KPI 대시보드 페이지, `/kpi` 비밀번호 게이트·GNB 미노출) 추가 — 진행현황.md·WBS.xlsx 동시 반영, 전체 95개 TASK로 갱신(취소 2개: SET-05, SET-11). 근거 문서를 IA v1.2(`/docs/source/`, `/kpi` 페이지·사이트맵·URL구조·화면-데이터매핑 반영)로 교체하고 구버전 v1.1은 `/docs/archive/`로 이동 |
 | v1.8 | 2026-08-03 | PM 요청 반영 — 4장 워크플로우에 6번 "작업결과 기록" 신설(기존 6·7번을 7·8번으로, 다음 TASK 이동을 9번으로 재조정): 모든 완료 TASK는 PM에게 제시한 결과 요약을 `docs/verification/{WBS코드}-작업결과.md`로 저장해 다음 세션이 설계 판단·구현 근거를 재조사하지 않고 참고·수정할 수 있게 한다. smoke-tests.md는 SET-* 인프라 1회성 검증 전용으로 계속 유지. 1장·5장에 경로 설명 반영 |
+| v1.9 | 2026-08-04 | PM 결정 반영 — SET-12(Figma MCP 연동) 취소. 세션 환경에 Figma MCP 커넥터가 연결되어 있지 않아 DoD(`get_design_context` 호출 성공)를 검증할 수 없었고, PM이 Figma를 사용하지 않기로 결정. 6장을 "Figma는 참조하지 않는다"로 갱신(디자인 소스를 design-tokens.md·화면설계서 2개로 축소), 2.3절 FE-* 참조표에서 Figma MCP 제거. FE-01 선행TASK에서 SET-12 제거(SET-07만 남음) — 진행현황.md·WBS.xlsx 동시 반영, 취소 3개(SET-05·SET-11·SET-12)로 갱신 |
