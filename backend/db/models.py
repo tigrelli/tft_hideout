@@ -121,6 +121,9 @@ class Augment(Base):
         Boolean, nullable=False, default=False
     )
     riot_augment_id: Mapped[str] = mapped_column(String, nullable=False)
+    # API-05 마스킹 대상. op.gg/Riot 어디에도 증강체 단위 승률 데이터 소스가 없어
+    # 배치는 채우지 않고 항상 NULL(DATA-05 스파이크, PM 승인 2026-08-04)
+    win_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class Comp(Base):

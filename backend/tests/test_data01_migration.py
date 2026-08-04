@@ -46,6 +46,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "description",
         "is_legend_related",
         "riot_augment_id",
+        "win_rate",
     },
 }
 

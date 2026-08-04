@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import ChampionItemBuild, Comp, CompAugment, CompChampion, Patch
+from db.models import Augment, ChampionItemBuild, Comp, CompAugment, CompChampion, Patch
 from db.session import get_db
 
 router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
@@ -15,6 +15,8 @@ router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
 PATCH_PATTERN = re.compile(r"^\d+\.\d+$")
 # op.gg 실제 랭크 구간 값은 DATA-05 스파이크 완료 후 확정 — 지금은 "all"만 실사용, 나머지는 자리표시
 ALLOWED_RANKS = {"all", "challenger", "grandmaster", "master"}
+# op.gg tft_list_augments의 실제 tier 값 3종(DATA-05 스파이크, docs/spike/legend-augment.md)
+ALLOWED_AUGMENT_TIERS = {"gold", "silver", "prism"}
 
 
 class CompSummary(BaseModel):
@@ -95,6 +97,21 @@ class ItemBuildsResponse(BaseModel):
     patch_version: str
     champion_id: int | None
     builds: list[ItemBuild]
+
+
+class AugmentSummary(BaseModel):
+    id: int
+    name_kr: str
+    name_en: str
+    tier: str
+    description: str
+    is_legend_related: bool
+    win_rate: float | None
+
+
+class AugmentsResponse(BaseModel):
+    patch_version: str
+    augments: list[AugmentSummary]
 
 
 class CurrentPatchResponse(BaseModel):
@@ -246,6 +263,48 @@ def get_item_builds(
     return ItemBuildsResponse(
         patch_version=resolved_patch, champion_id=champion_id, builds=builds
     )
+
+
+@router.get("/augments", response_model=AugmentsResponse)
+def get_augments(
+    db: Annotated[Session, Depends(get_db)],
+    patch: str | None = Query(default=None),
+    tier: str | None = Query(default=None),
+) -> AugmentsResponse:
+    if patch is not None and not PATCH_PATTERN.match(patch):
+        raise _invalid_param_error(
+            "invalid_patch", "patch는 'MAJOR.MINOR' 형식이어야 합니다 (예: 14.5)"
+        )
+    if tier is not None and tier not in ALLOWED_AUGMENT_TIERS:
+        raise _invalid_param_error(
+            "invalid_tier", f"tier는 {sorted(ALLOWED_AUGMENT_TIERS)} 중 하나여야 합니다"
+        )
+
+    resolved_patch = _resolve_patch(db, patch)
+
+    stmt = select(Augment).where(Augment.patch_version == resolved_patch)
+    if tier is not None:
+        stmt = stmt.where(Augment.tier == tier)
+    stmt = stmt.order_by(Augment.id)
+
+    rows = db.execute(stmt).scalars().all()
+    augments = [
+        AugmentSummary(
+            id=row.id,
+            name_kr=row.name_kr,
+            name_en=row.name_en,
+            tier=row.tier,
+            description=row.description,
+            is_legend_related=row.is_legend_related,
+            # 정책(policies.md 1번): is_legend_related=true는 win_rate를 null로
+            # 강제 — DB에 값이 남아있더라도(현재는 항상 NULL이지만 방어적으로)
+            # 응답에서 절대 노출하지 않는다.
+            win_rate=None if row.is_legend_related else row.win_rate,
+        )
+        for row in rows
+    ]
+
+    return AugmentsResponse(patch_version=resolved_patch, augments=augments)
 
 
 @router.get("/patches/current", response_model=CurrentPatchResponse)
