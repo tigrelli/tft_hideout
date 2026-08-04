@@ -1,7 +1,7 @@
 # DATA-10 : 작업결과
 
 - **TASK**: 데이터 정규화 및 patch_version 태깅 구현
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-02, DATA-08
 - **근거 문서**: PRD 9-2·12장
 - **변경 파일**: `batch/normalize.py`(신규), `batch/db_session.py`(신규), `batch/tests/test_data10_normalize.py`(신규), `batch/tests/conftest.py`(신규, backend alembic 재사용), `backend/alembic/versions/202608041000_data10_add_natural_keys_and_unique_constraints.py`(신규 마이그레이션), `backend/db/models.py`(UniqueConstraint·`riot_trait_id`·`riot_comp_id` 추가), `backend/tests/test_data01_migration.py`·`test_data02_migration.py`·`test_api02_tierlist.py`·`test_api03_comp_detail.py`(신규 컬럼 반영), `batch/requirements.txt`/`requirements-dev.txt`
