@@ -17,6 +17,10 @@
   --color-border-default: #d9d9d9;
   --color-border-input: #cccccc;
 
+  /* op.gg 실제 응답(opTier)에는 design-tokens.md 권장안(S/A/B/C)에 없던 "OP"도
+     있음을 FE-03에서 실 데이터로 확인 — S보다 상위 등급으로 보고 강조색 추가
+     (미확정 항목, design-tokens.md 참고, PM 확인 필요) */
+  --color-tier-op: #d9463d;
   --color-tier-s: #e5b93d;
   --color-tier-a: #8c6fe0;
   --color-tier-b: #4c9be0;
