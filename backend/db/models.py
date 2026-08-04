@@ -311,6 +311,15 @@ class PuuidCache(Base):
 
 class MetaDocumentEmbedding(Base):
     __tablename__ = "meta_document_embeddings"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version",
+            "doc_type",
+            "source_table",
+            "source_id",
+            name="uq_meta_document_embeddings_patch_doctype_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(
