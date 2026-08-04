@@ -35,3 +35,12 @@ Set 18 런칭(2026-08-12)에 맞춰 공식 발표될 가능성이 높다 — **8
 ## 다음 세션을 위한 메모
 
 DATA-09(ID-이름 매핑 갱신 로직) 착수 전에 이 문서를 먼저 참고. Set 18 런칭일(2026-08-12)이 지난 뒤라면 위 1번 재확인 단계부터 다시 밟을 것.
+
+## 정정(2026-08-04, FE-04 착수 중 재확인) — 공식 TFT Data Dragon이 실제로는 연결됨
+
+위 1번 결론("별도 TFT DDragon 엔드포인트 미확인")을 정정한다. FE-04에서 챔피언/아이템 이름 조회 방법을 다시 조사하며 Riot 공식 개발자 문서(`developer.riotgames.com/docs/tft`)를 WebSearch/WebFetch로 대조한 결과:
+
+- **당시 시도한 도메인 자체가 틀렸다**: `tftdragon.leagueoflegends.com`·`ddragon.tft.leagueoflegends.com`은 존재하지 않는 추정 도메인이었음. 실제로는 **기존 `ddragon.leagueoflegends.com` 도메인 그대로**, 파일명만 `tft-champion.json`/`tft-item.json`/`tft-augments.json`로 분리돼 있었다: `https://ddragon.leagueoflegends.com/cdn/{version}/data/{locale}/tft-champion.json` — 실제로 `16.15.1`/`ko_KR`로 호출해 200 확인, Set 17 데이터 존재(`TFTSet17/Shop/TFT17_Briar` 형식 키).
+- 이 키 형식(`TFT17_XXX`)이 **Community Dragon 기반으로 이미 채워둔 `champions.riot_champion_id`와 정확히 동일**함을 확인(DATA-09가 그대로 유효).
+- **그래도 데이터 소스를 바꾸지 않기로 함**: 이미 Community Dragon으로 채운 데이터가 실사용 중이고(comp_champions.champion_id 86/86, recommended_items 아이템 ID 29/29 전부 정상 매칭 확인), 공식 Data Dragon 전환은 이점 대비 리스크(버전 넘버링이 TFT 세트와 무관해 "몇 버전을 언제 갱신할지"를 새로 설계해야 함)가 커서 지금 굳이 바꿀 이유가 없다고 판단. 다만 향후 Community Dragon 가용성 문제가 생기면 대체 소스로 이 URL 패턴을 우선 시도할 것.
+- Set 18(2026-08-12) 런칭 이후 재확인할 때도 이 URL 패턴(`tft-champion.json` 등)을 함께 확인하는 걸 권장.
