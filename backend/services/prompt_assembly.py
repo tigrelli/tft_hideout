@@ -73,6 +73,28 @@ def _format_conversation_history(history: list[ChatLog]) -> str | None:
     return "[이전 대화]\n" + "\n".join(lines)
 
 
+def assemble_system_turn(intent: str) -> str:
+    """정적인 부분(시스템 프롬프트+few-shot)만 — CHAT-05가 Groq 채팅 API의
+    system 역할 메시지로 그대로 사용한다."""
+    return f"{build_system_prompt(intent)}\n\n{FEW_SHOT_EXAMPLES}"
+
+
+def assemble_user_turn(
+    patch_version: str,
+    retrieved_docs: list[MetaDocumentEmbedding],
+    conversation_history: list[ChatLog],
+    wrapped_user_message: str,
+) -> str:
+    """동적인 부분(검색문서+대화이력+질문)만 — CHAT-05가 Groq 채팅 API의 user
+    역할 메시지로 그대로 사용한다."""
+    sections = [_format_retrieved_docs(patch_version, retrieved_docs)]
+    history_section = _format_conversation_history(conversation_history)
+    if history_section is not None:
+        sections.append(history_section)
+    sections.append(wrapped_user_message)
+    return "\n\n".join(sections)
+
+
 def assemble_prompt(
     intent: str,
     patch_version: str,
@@ -80,16 +102,11 @@ def assemble_prompt(
     conversation_history: list[ChatLog],
     wrapped_user_message: str,
 ) -> str:
-    """CHAT-04가 만든 wrapped_user_message(이미 [사용자 메시지] 델리미터로 감싸진
+    """system_turn + user_turn을 이어붙인 전체 조합(스냅샷 테스트·문서화 용도).
+    CHAT-04가 만든 wrapped_user_message(이미 [사용자 메시지] 델리미터로 감싸진
     문자열)를 그대로 받아 조립한다. 대화 이력이 없으면 [이전 대화] 섹션 자체를
     생략한다."""
-    sections = [
-        build_system_prompt(intent),
-        FEW_SHOT_EXAMPLES,
-        _format_retrieved_docs(patch_version, retrieved_docs),
-    ]
-    history_section = _format_conversation_history(conversation_history)
-    if history_section is not None:
-        sections.append(history_section)
-    sections.append(wrapped_user_message)
-    return "\n\n".join(sections)
+    user_turn = assemble_user_turn(
+        patch_version, retrieved_docs, conversation_history, wrapped_user_message
+    )
+    return f"{assemble_system_turn(intent)}\n\n{user_turn}"

@@ -8,6 +8,7 @@ batch/embeddings.py의 HuggingFaceEmbeddingClient와 로직이 동일하지만, 
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Self
 
@@ -80,3 +81,12 @@ class HuggingFaceEmbeddingClient:
 
     def embed_one(self, text: str) -> list[float]:
         return self.embed_batch([text])[0]
+
+
+def embed_query(text: str) -> list[float]:
+    """CHAT-05가 쓰는 진입점. HUGGINGFACE_API_KEY로 클라이언트를 매번 새로 만든다
+    (Groq 클라이언트와 달리 커넥션 재사용의 이점이 크지 않은 저빈도 호출)."""
+    with HuggingFaceEmbeddingClient(
+        api_key=os.environ["HUGGINGFACE_API_KEY"]
+    ) as client:
+        return client.embed_one(text)

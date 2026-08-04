@@ -12,7 +12,11 @@ from services.chat_session import (
     get_session_history,
     validate_session_id,
 )
-from services.chat_stream import build_sse_stream
+from services.chat_stream import build_sse_stream, generate_answer_stream
+from services.embedding_client import embed_query
+from services.groq_client import stream_groq_chat
+from services.hybrid_search import hybrid_search
+from services.intent_classification import classify_intent_for_query
 from services.kpi_events import record_link_click
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -68,11 +72,22 @@ def get_chat_history(
 
 
 @router.post("/message")
-def post_chat_message(body: ChatMessageRequest) -> StreamingResponse:
-    """스트리밍 응답 인프라(API-09). RAG 검색·의도분류·프롬프트 조립은 CHAT-01~10에서 연동한다."""
+def post_chat_message(
+    body: ChatMessageRequest, db: Annotated[Session, Depends(get_db)]
+) -> StreamingResponse:
+    """SSE 스트리밍 응답(API-09 배관 + CHAT-01~05 실제 배선)."""
     validate_session_id(body.session_id)
+    token_stream = generate_answer_stream(
+        db,
+        body.session_id,
+        body.message,
+        embed_fn=embed_query,
+        classify_fn=classify_intent_for_query,
+        search_fn=hybrid_search,
+        stream_fn=stream_groq_chat,
+    )
     return StreamingResponse(
-        build_sse_stream(body.message), media_type="text/event-stream"
+        build_sse_stream(token_stream), media_type="text/event-stream"
     )
 
 
