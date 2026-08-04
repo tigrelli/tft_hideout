@@ -5,3 +5,4 @@ alembic
 psycopg[binary]
 pgvector
 groq
+httpx
