@@ -1,7 +1,7 @@
 # DATA-06 : 작업결과
 
 - **TASK**: TFT DDragon 신규 구조 확인 스파이크
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: -
 - **근거 문서**: PRD 12장·13-2
 - **산출물**: [`/docs/spike/tft-ddragon.md`](../spike/tft-ddragon.md)
@@ -14,10 +14,10 @@ PRD가 우려한 "Set 18(2026-08-12)부터 TFT DDragon이 League DDragon에서 �
 
 **대안으로 Community Dragon**(`raw.communitydragon.org/latest/cdragon/tft/{lang}.json`, 200 확인)이 이미 TFT 전체 데이터(챔피언/아이템/증강체/특성, 세트별)를 제공 중임을 확인했다. `setData[].mutator`가 `"TFTSet17"`로 op.gg의 `teamCode` 접미사와 정확히 일치하고, op.gg 자체 응답에도 `"type": "cdragon-item"`이 있어 op.gg가 내부적으로 Community Dragon을 쓰고 있음을 시사한다.
 
-## PM 확인 필요
+## PM 결정 (2026-08-04)
 
-1. DATA-09(ID-이름 매핑)를 Community Dragon 기준으로 설계해도 되는지 — 비공식 커뮤니티 미러(Riot 비공식, ToS/가용성 보장 없음)라는 리스크가 있지만 업계에서 사실상 표준으로 널리 쓰임.
-2. Set 18 런칭(2026-08-12) 이후 공식 TFT DDragon 등장 여부를 그때 재확인하는 것으로 충분한지, 아니면 별도 후속 스파이크를 잡을지.
+1. DATA-09(ID-이름 매핑)는 Community Dragon 기준으로 설계 진행 확정.
+2. Set 18 런칭(2026-08-12) 이후 공식 TFT DDragon 등장 여부는 그때 재확인. 진행현황.md의 DATA-01~15 표 하단에 재확인 메모를 남겨 다음 세션이 놓치지 않도록 함.
 
 ## 자체 검증
 
