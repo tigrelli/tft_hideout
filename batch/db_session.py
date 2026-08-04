@@ -8,14 +8,23 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-_BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
-if str(_BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_DIR))
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
-from db import models  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+if TYPE_CHECKING:
+    from db import models
+else:
+    # backend/db/models.py를 임포트하려면 backend/를 sys.path에 넣어야 하는데,
+    # 이걸 모듈 최상단에서 하면 ruff 버전에 따라 E402(모듈 상단 아닌 임포트) 판정이
+    # 갈려 pre-commit(고정 버전)과 CI(최신 버전)가 서로 다른 결과를 낼 수 있다
+    # (2026-08-04 실제로 겪음). 함수 안이 아니라 이렇게 지연 임포트로 감싸면
+    # ruff 버전과 무관하게 항상 안전하다.
+    _BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
+    if str(_BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(_BACKEND_DIR))
+    from db import models
 
 
 def get_database_url() -> str:
