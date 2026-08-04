@@ -1,7 +1,7 @@
 # DATA-08 : 작업결과
 
 - **TASK**: op.gg MCP 배치 수집 워커 구현
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-05
 - **근거 문서**: 설계서 4.3
 - **변경 파일**: `batch/opgg_client.py`(신규), `batch/tests/test_data08_opgg_client.py`(신규), `batch/conftest.py`, `batch/requirements.txt`, `batch/requirements-dev.txt`, `batch/README.md`, `.github/workflows/ci.yml`(batch-tests job 신규), `TFT_Hideout_WBS.xlsx`(테스트요구사항 "6개→5개 도구" 문구 정정)
