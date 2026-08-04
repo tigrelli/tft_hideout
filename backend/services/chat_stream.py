@@ -1,13 +1,16 @@
 """CHAT-05: CHAT-01(의도분류)~CHAT-04(전처리)를 실제로 배선해 Groq 스트리밍
 답변을 만든다. API-09가 만든 SSE 배관(build_sse_stream)의 mock을 실제 파이프라인으로
-교체한다. CHAT-06(후처리)·CHAT-07(링크 삽입)도 여기서 최종 배선된다."""
+교체한다. CHAT-06(후처리)·CHAT-07(링크 삽입)·CHAT-09(Q&A 로깅)도 여기서 최종
+배선된다."""
 
+import time
 from collections.abc import Callable, Generator
 
 from sqlalchemy.orm import Session
 
 from db.models import ChatLog, MetaDocumentEmbedding
 from services.chat_links import insert_links
+from services.chat_logging import record_chat_log
 from services.chat_postprocessing import postprocess_answer
 from services.chat_preprocessing import get_conversation_history, preprocess_input
 from services.current_patch import get_current_patch_version
@@ -94,12 +97,28 @@ def generate_answer_stream(
     # 전부 버퍼링한 뒤 후처리하고, 검증된 최종 텍스트를 다시 단어 단위로 쪼개
     # 내보낸다(체감 스트리밍 유지 — 실시간 생성 속도는 아니지만 순차 전송은 유지,
     # PM 승인 2026-08-04, CHAT-06 작업결과 참고).
+    started_at = time.monotonic()
     raw_answer = "".join(stream_llm_answer(system_prompt, user_prompt, stream_fn))
     processed_answer = postprocess_answer(raw_answer, retrieved_docs)
     # CHAT-07: 검증된(=검색 문서에 실재하는) 인용 이름만 상세 페이지 링크로 치환.
     # verify_grounding이 이미 미검증 이름을 걸러내므로, 여기서는 존재하지 않는
     # id로 링크를 만들 위험이 없다.
     final_answer = insert_links(processed_answer, retrieved_docs)
+    latency_ms = int((time.monotonic() - started_at) * 1000)
+
+    # CHAT-09: chat_logs 적재는 의도분류·검색·답변생성이 전부 이뤄진 정상 흐름에서만
+    # 수행(명확화/범위밖/패치없음 조기 반환은 intent·patch_version이 없어 대상 아님).
+    record_chat_log(
+        db,
+        session_id=session_id,
+        patch_version=patch_version,
+        user_query=preprocessed.normalized_text,
+        intent=intent,
+        retrieved_docs=retrieved_docs,
+        answer=final_answer,
+        latency_ms=latency_ms,
+    )
+
     yield from final_answer.split(" ")
 
 
