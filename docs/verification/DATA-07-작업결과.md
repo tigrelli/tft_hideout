@@ -1,7 +1,7 @@
 # DATA-07 : 작업결과
 
 - **TASK**: is_legend_related 판별 방법 확인 스파이크
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-05
 - **근거 문서**: 설계서 5.1·8장
 - **산출물**: [`/docs/spike/legend-augment.md`](../spike/legend-augment.md)
