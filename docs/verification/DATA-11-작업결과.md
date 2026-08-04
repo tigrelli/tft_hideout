@@ -1,7 +1,7 @@
 # DATA-11 : 작업결과
 
 - **TASK**: 임베딩 생성 파이프라인 구현
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-04, DATA-10, SET-10
 - **근거 문서**: 설계서 4.3·5.2
 - **변경 파일**: `batch/embeddings.py`(신규), `batch/tests/test_data11_embeddings.py`(신규), `backend/alembic/versions/202608041100_data11_add_embeddings_unique_constraint.py`(신규 마이그레이션), `backend/db/models.py`(`MetaDocumentEmbedding` UniqueConstraint 추가), `backend/tests/test_data04_migration.py`(seed fixture가 새 제약과 충돌해 source_id를 서로 다르게 수정), `docs/reference/api-spec.md`(HF 신규 엔드포인트 기록)
