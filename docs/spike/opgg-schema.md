@@ -35,7 +35,7 @@
 `glossary.md`는 "op.gg MCP: ... 개인 전적 조회 기능 없음"이라고 명시하지만, 실제로 `tft_get_play_style`의 입력 스키마는 `region`(필수)과 `puuid`(필수, "Riot Account PUUID... lol_get_summoner_profile 응답 또는 외부 Riot API 응답에서 얻음")를 요구한다. 즉 **이 도구 하나는 특정 플레이어의 PUUID가 있어야 호출 가능한 개인화 도구**이며, DATA-08(배치 수집 워커)이 상정한 "6개 도구 순차 호출"(패치 단위로 무작위 배치 실행) 방식과 맞지 않는다.
 
 - 나머지 5개 도구는 파라미터 없음(`{}`) 또는 champion/item ID만 필요해 배치로 순회 호출 가능.
-- `tft_get_play_style`은 PUUID가 있어야 하므로 카탈로그 배치(DATA-08)가 아니라 **사후 패인 분석(PGA-07 코칭 문장 생성)** 쪽에서, 이미 확보한 사용자 PUUID로 호출하는 것이 자연스러워 보인다. **PM 확인 필요**: 이 도구를 DATA-08(카탈로그) 대신 PGA 쪽으로 재배치할지, 아니면 DATA-08에서 완전히 제외할지 결정 필요.
+- **PM 결정(2026-08-04)**: `tft_get_play_style`은 DATA-08(카탈로그 배치)에서 제외하고 PGA-07(코칭 문장 생성)로 이동. PGA-01~02에서 이미 확보한 사용자 PUUID를 그대로 재사용해 호출한다. DATA-08은 이제 5개 도구만 순차 호출(WBS.xlsx 반영 완료).
 
 ## 5. 확인된 세트/버전 표기
 
@@ -72,6 +72,6 @@
 ## 다음 세션을 위한 메모
 
 - DATA-08 구현 시 이 문서의 연결 방식(세션 핸드셰이크)과 도구별 응답 구조를 그대로 fixture 스키마 근거로 사용할 것. 값은 정책(CLAUDE.md 10.2)에 따라 합성 데이터로 치환.
-- DATA-12(패치 감지)는 Riot API 없이 `tft_list_item_combinations.version`만으로 구현 가능 — PM 확인되면 설계서 4.6/PRD 9-1의 "Riot 리더보드 대체" 문구도 갱신 필요.
-- `tft_get_play_style` 재배치 여부 PM 확인 필요(위 4번).
-- DATA-07(is_legend_related)은 op.gg 라벨 없음 확정 — 수동 목록 방식으로 바로 착수 가능(Set 17 Legend 메커니즘 존재 여부만 별도 확인).
+- DATA-12(패치 감지)는 `tft_list_item_combinations.version` 기준으로 진행 확정(PM 승인 2026-08-04). Riot 키 확보 후 리더보드 샘플링을 보조 신호로 추가할 수도 있음 — 그때 가서 판단.
+- `tft_get_play_style`은 PGA-07로 이동 확정(PM 승인 2026-08-04, WBS.xlsx DATA-08/PGA-07 TASK 설명 갱신 완료).
+- DATA-07(is_legend_related)은 op.gg 라벨 없음 확정 — 수동 목록 방식으로 바로 착수 가능(Set 17 Legend 메커니즘 존재 여부만 별도 확인). 이 필드는 Riot TFT 개발자 정책("Legends/Legend 기반 증강체 승률 표시 금지", PRD 9-1)을 지키기 위한 것 — API-05/CHAT-06/FE-06의 승률 마스킹 대상을 가리는 플래그.

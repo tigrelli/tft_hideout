@@ -36,7 +36,7 @@
 
 | 대상 | 호출 방식 | 용도 |
 |---|---|---|
-| op.gg MCP | 배치(GitHub Actions 크론, 매시간) | 메타 데이터 6종 도구 |
+| op.gg MCP | 배치(GitHub Actions 크론, 매시간) | 메타 데이터 5종 도구(DATA-08) + `tft_get_play_style`은 PGA-07에서 실시간 호출(PUUID 필요, 2026-08-04 DATA-05 스파이크 결정) |
 | Riot API (Match-V1) | 실시간(분석 요청 시점) | 개인 매치 조회 전용 |
 | TFT DDragon | 배치(보조 신호) | ID↔이름 매핑 |
 | Groq API | 실시간(SSE 스트리밍) | sLLM 추론(Llama 3.3 70B) |
