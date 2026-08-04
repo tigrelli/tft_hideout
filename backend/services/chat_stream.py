@@ -1,7 +1,7 @@
 """CHAT-05: CHAT-01(의도분류)~CHAT-04(전처리)를 실제로 배선해 Groq 스트리밍
 답변을 만든다. API-09가 만든 SSE 배관(build_sse_stream)의 mock을 실제 파이프라인으로
-교체한다. CHAT-06(후처리)·CHAT-07(링크 삽입)·CHAT-09(Q&A 로깅)도 여기서 최종
-배선된다."""
+교체한다. CHAT-06(후처리)·CHAT-07(링크 삽입)·CHAT-08(응답 캐싱)·CHAT-09(Q&A 로깅)도
+여기서 최종 배선된다."""
 
 import time
 from collections.abc import Callable, Generator
@@ -9,6 +9,7 @@ from collections.abc import Callable, Generator
 from sqlalchemy.orm import Session
 
 from db.models import ChatLog, MetaDocumentEmbedding
+from services.chat_cache import get_cached_answer, store_answer_in_cache
 from services.chat_links import insert_links
 from services.chat_logging import record_chat_log
 from services.chat_postprocessing import postprocess_answer
@@ -82,8 +83,19 @@ def generate_answer_stream(
         yield NO_CURRENT_PATCH_MESSAGE
         return
 
-    intent = classify_fn(preprocessed.normalized_text)
+    # CHAT-08: 대화 이력이 없는 첫 턴 질문만 캐시 대상(같은 문장도 후속 턴에서는
+    # 직전 맥락에 따라 정답이 달라지므로 후속 턴은 캐시를 아예 조회하지 않음).
     conversation_history: list[ChatLog] = get_conversation_history(db, session_id)
+    is_first_turn = len(conversation_history) == 0
+    if is_first_turn:
+        cached_answer = get_cached_answer(
+            db, preprocessed.normalized_text, patch_version
+        )
+        if cached_answer is not None:
+            yield from cached_answer.split(" ")
+            return
+
+    intent = classify_fn(preprocessed.normalized_text)
     query_embedding = embed_fn(preprocessed.normalized_text)
     retrieved_docs = search_fn(db, intent, patch_version, query_embedding)
 
@@ -118,6 +130,11 @@ def generate_answer_stream(
         answer=final_answer,
         latency_ms=latency_ms,
     )
+
+    if is_first_turn:
+        store_answer_in_cache(
+            db, preprocessed.normalized_text, patch_version, final_answer
+        )
 
     yield from final_answer.split(" ")
 
