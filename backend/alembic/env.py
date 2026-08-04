@@ -1,4 +1,3 @@
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -10,6 +9,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from db.models import Base
+from db.session import get_database_url
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -20,9 +20,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# db.session.get_database_url()로 드라이버 미지정 URL(postgres://, postgresql://)을
+# postgresql+psycopg://로 보정 — 2026-08-04 Render 배포에서 env.py가 이 정규화를
+# 안 타서 ModuleNotFoundError: psycopg2로 빌드 실패한 문제(f5f9b49는 session.py/
+# db_session.py만 고치고 alembic env.py는 놓쳤었음)
+config.set_main_option("sqlalchemy.url", get_database_url())
 
 target_metadata = Base.metadata
 
