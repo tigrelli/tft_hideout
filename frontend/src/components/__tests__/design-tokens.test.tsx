@@ -1,8 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { render, screen } from "@testing-library/react";
-import { HeaderShell } from "../header-shell";
+import { Gnb } from "../gnb";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
 
 // WBS FE-01 테스트 요구사항: 디자인 토큰 색상값 매칭 확인
 // 근거: /docs/reference/design-tokens.md 컬러 표
@@ -34,10 +43,10 @@ describe("디자인 토큰(design-tokens.md) 색상값 매칭", () => {
     },
   );
 
-  it("HeaderShell은 토큰 기반 클래스(text-primary, bg-surface-card, border-border-default)를 사용한다", () => {
-    render(<HeaderShell />);
-    const header = screen.getByText("TFT Hideout").closest("header");
-    const logo = screen.getByText("TFT Hideout");
+  it("Gnb는 토큰 기반 클래스(text-primary, bg-surface-card, border-border-default)를 사용한다", () => {
+    render(<Gnb />);
+    const logo = screen.getByRole("link", { name: "TFT Hideout" });
+    const header = logo.closest("header");
     expect(header?.className).toContain("bg-surface-card");
     expect(header?.className).toContain("border-border-default");
     expect(logo.className).toContain("text-primary");

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { HeaderShell } from "@/components/header-shell";
+import { Gnb } from "@/components/gnb";
 import "./globals.css";
 
 const inter = Inter({
@@ -17,7 +17,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ko" className={`${inter.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col font-sans">
-        <HeaderShell />
+        <Gnb />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:px-10">
           {children}
         </main>
