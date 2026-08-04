@@ -38,6 +38,6 @@
 |---|---|---|
 | op.gg MCP | 배치(GitHub Actions 크론, 매시간) | 메타 데이터 5종 도구(DATA-08) + `tft_get_play_style`은 PGA-07에서 실시간 호출(PUUID 필요, 2026-08-04 DATA-05 스파이크 결정) |
 | Riot API (Match-V1) | 실시간(분석 요청 시점) | 개인 매치 조회 전용 |
-| TFT DDragon | 배치(보조 신호) | ID↔이름 매핑 |
+| Community Dragon(`raw.communitydragon.org/latest/cdragon/tft/{lang}.json`) | 배치(보조 신호) | ID↔이름 매핑. 공식 "TFT DDragon" 분리 엔드포인트는 2026-08-04 기준 미확인(DATA-06 스파이크, Set 18 런칭 2026-08-12 이후 재확인 필요) — 대안으로 Community Dragon 사용, op.gg 응답의 `type: "cdragon-item"`과 세트 식별자(`mutator`/`teamCode` "TFTSet17")가 일치함을 확인 |
 | Groq API | 실시간(SSE 스트리밍) | sLLM 추론(Llama 3.3 70B) |
 | Hugging Face Inference API | 배치+실시간 | 임베딩(BGE-M3, 1024차원) |
