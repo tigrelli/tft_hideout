@@ -188,7 +188,10 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
     def fake_stream_fn(system_prompt: str, user_message: str):
         calls["system_prompt"] = system_prompt
         calls["user_message"] = user_message
-        yield from ["안녕", "하세요"]
+        # CHAT-06부터 generate_answer_stream이 전체 응답을 버퍼링("".join)한 뒤
+        # 공백 기준으로 다시 쪼개 내보내므로, 실제 Groq 델타처럼 두 번째 토큰에
+        # 선행 공백을 포함시켜야 "안녕 하세요"로 정확히 복원된다.
+        yield from ["안녕", " 하세요"]
 
     tokens = list(
         generate_answer_stream(

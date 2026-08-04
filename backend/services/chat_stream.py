@@ -7,6 +7,7 @@ from collections.abc import Callable, Generator
 from sqlalchemy.orm import Session
 
 from db.models import ChatLog, MetaDocumentEmbedding
+from services.chat_postprocessing import postprocess_answer
 from services.chat_preprocessing import get_conversation_history, preprocess_input
 from services.current_patch import get_current_patch_version
 from services.prompt_assembly import assemble_system_turn, assemble_user_turn
@@ -87,7 +88,14 @@ def generate_answer_stream(
         patch_version, retrieved_docs, conversation_history, preprocessed.wrapped_text
     )
 
-    yield from stream_llm_answer(system_prompt, user_prompt, stream_fn)
+    # CHAT-06 후처리(근거검증·승률마스킹)는 완성된 문장 단위로만 신뢰할 수 있어
+    # (부분 토큰 중간에 숫자·인용부호가 잘리면 정규식이 오작동) 여기서 스트림을
+    # 전부 버퍼링한 뒤 후처리하고, 검증된 최종 텍스트를 다시 단어 단위로 쪼개
+    # 내보낸다(체감 스트리밍 유지 — 실시간 생성 속도는 아니지만 순차 전송은 유지,
+    # PM 승인 2026-08-04, CHAT-06 작업결과 참고).
+    raw_answer = "".join(stream_llm_answer(system_prompt, user_prompt, stream_fn))
+    final_answer = postprocess_answer(raw_answer, retrieved_docs)
+    yield from final_answer.split(" ")
 
 
 def build_sse_stream(
