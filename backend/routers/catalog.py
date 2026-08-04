@@ -7,7 +7,16 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import Augment, ChampionItemBuild, Comp, CompAugment, CompChampion, Patch
+from db.models import (
+    Augment,
+    Champion,
+    ChampionItemBuild,
+    Comp,
+    CompAugment,
+    CompChampion,
+    Item,
+    Patch,
+)
 from db.session import get_db
 
 router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
@@ -62,12 +71,17 @@ def _resolve_patch(db: Session, patch: str | None) -> str:
 
 class ChampionInComp(BaseModel):
     champion_id: int
+    name_kr: str
+    name_en: str
     is_carry: bool
-    recommended_items: dict
+    recommended_items: list[str]  # 원본 riot_item_id(추후 아이콘 매칭용)
+    recommended_item_names: list[str]  # 사람이 읽는 이름(items.name_kr)
 
 
 class AugmentInComp(BaseModel):
     augment_id: int
+    name_kr: str
+    name_en: str
     priority: int
 
 
@@ -190,27 +204,64 @@ def get_comp_detail(
         )
 
     champion_rows = db.execute(
-        select(CompChampion)
+        select(CompChampion, Champion)
+        .join(Champion, Champion.id == CompChampion.champion_id)
         .where(CompChampion.comp_id == comp_id)
         .order_by(CompChampion.is_carry.desc(), CompChampion.champion_id)
-    ).scalars()
+    ).all()
+
+    # recommended_items는 op.gg 원본 아이템 ID 문자열이라(챔피언 이름과 달리 op.gg가
+    # 자체 제공하지 않는 표시 이름 없음) items 테이블에서 같은 patch_version 기준으로
+    # 이름을 조회한다(riot_item_id는 FK가 아니라 문자열 매칭이라 patch_version을
+    # 명시해야 다른 패치의 동명 아이템과 섞이지 않음 — 실 데이터로 매칭 확인됨).
+    item_ids = {
+        item_id
+        for comp_champion, _ in champion_rows
+        for item_id in comp_champion.recommended_items
+    }
+    item_name_by_id = (
+        {
+            row.riot_item_id: row.name_kr
+            for row in db.execute(
+                select(Item).where(
+                    Item.patch_version == comp.patch_version,
+                    Item.riot_item_id.in_(item_ids),
+                )
+            ).scalars()
+        }
+        if item_ids
+        else {}
+    )
+
     champions = [
         ChampionInComp(
-            champion_id=row.champion_id,
-            is_carry=row.is_carry,
-            recommended_items=row.recommended_items,
+            champion_id=comp_champion.champion_id,
+            name_kr=champion.name_kr,
+            name_en=champion.name_en,
+            is_carry=comp_champion.is_carry,
+            recommended_items=comp_champion.recommended_items,
+            recommended_item_names=[
+                item_name_by_id.get(item_id, item_id)
+                for item_id in comp_champion.recommended_items
+            ],
         )
-        for row in champion_rows
+        for comp_champion, champion in champion_rows
     ]
 
     augment_rows = db.execute(
-        select(CompAugment)
+        select(CompAugment, Augment)
+        .join(Augment, Augment.id == CompAugment.augment_id)
         .where(CompAugment.comp_id == comp_id)
         .order_by(CompAugment.priority)
-    ).scalars()
+    ).all()
     augments = [
-        AugmentInComp(augment_id=row.augment_id, priority=row.priority)
-        for row in augment_rows
+        AugmentInComp(
+            augment_id=comp_augment.augment_id,
+            name_kr=augment.name_kr,
+            name_en=augment.name_en,
+            priority=comp_augment.priority,
+        )
+        for comp_augment, augment in augment_rows
     ]
 
     return CompDetailResponse(

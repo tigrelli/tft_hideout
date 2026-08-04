@@ -6,7 +6,7 @@ from sqlalchemy import insert, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from db.models import Augment, Champion, Comp, CompAugment, CompChampion, Patch
+from db.models import Augment, Champion, Comp, CompAugment, CompChampion, Item, Patch
 from db.session import get_db
 from main import app
 
@@ -53,6 +53,17 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
             )
         )
         session.execute(
+            insert(Item).values(
+                patch_version="14.5",
+                name_kr="무한의 대검",
+                name_en="Infinity Edge",
+                item_type="completed",
+                riot_item_id="TFT_Item_InfinityEdge",
+                components={},
+                stats={},
+            )
+        )
+        session.execute(
             insert(Comp).values(
                 patch_version="14.5",
                 riot_comp_id="fake-comp-reroll-yone",
@@ -77,7 +88,7 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
                 comp_id=comp_id,
                 champion_id=yone_id,
                 is_carry=True,
-                recommended_items={"items": ["infinity_edge"]},
+                recommended_items=["TFT_Item_InfinityEdge"],
             )
         )
         session.execute(
@@ -85,7 +96,7 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
                 comp_id=comp_id,
                 champion_id=ahri_id,
                 is_carry=False,
-                recommended_items={},
+                recommended_items=[],
             )
         )
         session.execute(
@@ -124,6 +135,8 @@ def test_comp_detail_returns_champions_and_augments(
     assert len(body["augments"]) == 1
     assert body["augments"][0]["priority"] == 2
     assert isinstance(body["augments"][0]["augment_id"], int)
+    assert body["augments"][0]["name_kr"] == "완전무장"
+    assert body["augments"][0]["name_en"] == "Full Armory"
 
 
 def test_comp_detail_distinguishes_carry_from_sub_champion(
@@ -135,11 +148,76 @@ def test_comp_detail_distinguishes_carry_from_sub_champion(
     carry = next(c for c in champions if c["is_carry"])
     sub = next(c for c in champions if not c["is_carry"])
 
-    assert carry["recommended_items"] == {"items": ["infinity_edge"]}
-    assert sub["recommended_items"] == {}
+    assert carry["name_kr"] == "요네"
+    assert carry["name_en"] == "Yone"
+    assert carry["recommended_items"] == ["TFT_Item_InfinityEdge"]
+    assert carry["recommended_item_names"] == ["무한의 대검"]
+    assert sub["name_kr"] == "아리"
+    assert sub["recommended_items"] == []
+    assert sub["recommended_item_names"] == []
 
 
 def test_comp_detail_not_found_returns_404(client: TestClient) -> None:
     response = client.get("/api/v1/catalog/comps/999999")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "comp_not_found"
+
+
+def test_comp_detail_item_name_falls_back_to_raw_id_when_unresolvable(
+    migrated_engine: Engine, client: TestClient
+) -> None:
+    """items 테이블에 없는 아이템 ID(예: 매핑 누락)는 원본 ID 문자열을 그대로
+    이름 자리에 반환한다(예외를 던지지 않고 방어적으로 처리)."""
+    with Session(migrated_engine) as session:
+        session.execute(
+            insert(Patch).values(
+                version="14.5",
+                set_number=14,
+                released_at=datetime(2026, 1, 1, tzinfo=UTC),
+                is_current=True,
+                detected_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        )
+        session.execute(
+            insert(Champion).values(
+                patch_version="14.5",
+                riot_champion_id="TFT14_Yone",
+                name_kr="요네",
+                name_en="Yone",
+                cost=4,
+            )
+        )
+        session.execute(
+            insert(Comp).values(
+                patch_version="14.5",
+                riot_comp_id="fake-comp-unresolved-item",
+                name="Unresolved Item Comp",
+                tier_rank="B",
+                rank_tier="all",
+                avg_place=4.5,
+                play_rate=0.02,
+                win_rate=0.10,
+                playstyle_text="테스트",
+                updated_at=datetime(2026, 1, 2, tzinfo=UTC),
+            )
+        )
+        session.commit()
+        comp_id = session.execute(
+            select(Comp.id).where(Comp.riot_comp_id == "fake-comp-unresolved-item")
+        ).scalar_one()
+        yone_id = session.execute(select(Champion.id)).scalar_one()
+        session.execute(
+            insert(CompChampion).values(
+                comp_id=comp_id,
+                champion_id=yone_id,
+                is_carry=True,
+                recommended_items=["TFT_Item_DoesNotExist"],
+            )
+        )
+        session.commit()
+
+    response = client.get(f"/api/v1/catalog/comps/{comp_id}")
+    assert response.status_code == 200
+    champion = response.json()["champions"][0]
+    assert champion["recommended_items"] == ["TFT_Item_DoesNotExist"]
+    assert champion["recommended_item_names"] == ["TFT_Item_DoesNotExist"]

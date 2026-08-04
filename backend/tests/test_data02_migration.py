@@ -58,7 +58,7 @@ def test_comp_champions_fk_violation_raises_integrity_error(
                 comp_id=9999,
                 champion_id=9999,
                 is_carry=True,
-                recommended_items={},
+                recommended_items=[],
             )
         )
 

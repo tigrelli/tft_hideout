@@ -159,7 +159,10 @@ class CompChampion(Base):
         ForeignKey("champions.id"), primary_key=True
     )
     is_carry: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    recommended_items: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # op.gg 응답의 아이템 ID 문자열 목록 그대로(batch/normalize.py comp_champion_rows).
+    # DATA-02 마이그레이션 당시 dict로 잘못 가정했던 걸 FE-04 착수 중 실 데이터로
+    # 발견해 바로잡음(2026-08-04) — JSONB 컬럼 자체는 스키마 변경 불필요.
+    recommended_items: Mapped[list] = mapped_column(JSONB, nullable=False)
 
 
 class CompAugment(Base):
