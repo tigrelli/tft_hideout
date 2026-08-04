@@ -1,0 +1,136 @@
+"""GitHub Actions가 실행하는 배치 진입점(DATA-14).
+
+DATA-12(패치 감지) -> 변경 있으면 DATA-08(op.gg)/DATA-09(Community Dragon) 수집 ->
+DATA-10(정규화) -> DATA-11(임베딩) -> DATA-13(원자적 전환)을 순서대로 잇는다.
+개별 단계 함수는 전부 이미 pytest로 검증돼 있으므로, 이 파일은 배선(glue)만
+담당하고 별도 로직을 추가하지 않는다.
+
+주의: 아직 GitHub Actions 워크플로우의 `schedule` 트리거는 켜지 않았다(PM 결정,
+2026-08-04) — `workflow_dispatch`(수동 실행)로만 동작한다. 매시간 자동 실행은
+PM이 수동 실행으로 먼저 검증한 뒤 별도로 켜기로 함.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+from db_session import create_session
+from embeddings import HuggingFaceEmbeddingClient, collect_chunks, upsert_embeddings
+from id_name_mapping import CommunityDragonClient, build_name_maps
+from normalize import (
+    augment_rows,
+    champion_rows,
+    comp_champion_rows,
+    comp_rows,
+    ensure_patch,
+    item_rows,
+    trait_rows,
+    upsert_augments,
+    upsert_champions,
+    upsert_comp_champions,
+    upsert_comps,
+    upsert_items,
+    upsert_traits,
+)
+from opgg_client import OpggMcpClient
+from patch_detection import run_patch_detection
+from patch_transition import BatchStep, run_batch_with_atomic_promotion
+
+# 무료 티어 호출량을 고려해 임베딩은 패치 변경분 전체가 아니라 상한을 두고 처리한다.
+# 나머지는 다음 실행(다음 시간) 때 이어서 처리되도록 doc_type별 upsert가 이미
+# 멱등적이라 여러 번 나눠 돌려도 안전하다(DATA-11 결정).
+MAX_CHUNKS_PER_RUN = int(os.environ.get("MAX_EMBED_CHUNKS_PER_RUN", "500"))
+
+
+def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
+    def step_collect() -> None:
+        with CommunityDragonClient() as cd:
+            state["cdragon_ko"] = cd.fetch_tft_data(lang="ko_kr")
+            state["cdragon_en"] = cd.fetch_tft_data(lang="en_us")
+        with OpggMcpClient() as opgg:
+            state["items_ko"] = opgg.list_item_combinations(lang="ko_KR")
+            state["items_en"] = opgg.list_item_combinations(lang="en_US")
+            state["augments_ko"] = opgg.list_augments(lang="ko_KR")
+            state["augments_en"] = opgg.list_augments(lang="en_US")
+            state["meta_decks"] = opgg.list_meta_decks()
+
+    def step_normalize() -> None:
+        patch_version = state["patch_version"]
+        champion_ids = upsert_champions(
+            session,
+            patch_version,
+            champion_rows(state["cdragon_ko"], state["cdragon_en"], set_number),
+        )
+        upsert_traits(
+            session,
+            patch_version,
+            trait_rows(state["cdragon_ko"], state["cdragon_en"], set_number),
+        )
+        upsert_items(
+            session, patch_version, item_rows(state["items_ko"], state["items_en"])
+        )
+        upsert_augments(
+            session,
+            patch_version,
+            augment_rows(state["augments_ko"], state["augments_en"]),
+        )
+        name_maps = build_name_maps(state["cdragon_ko"], set_number)
+        comp_ids = upsert_comps(
+            session, patch_version, comp_rows(state["meta_decks"], name_maps.champions)
+        )
+        session.flush()
+        for deck in state["meta_decks"]["data"]:
+            comp_id = comp_ids.get(deck["id"])
+            if comp_id is not None:
+                upsert_comp_champions(
+                    session, comp_id, comp_champion_rows(deck), champion_ids
+                )
+
+    def step_embed() -> None:
+        chunks = collect_chunks(session, state["patch_version"])[:MAX_CHUNKS_PER_RUN]
+        if not chunks:
+            return
+        hf_key = os.environ["HUGGINGFACE_API_KEY"]
+        with HuggingFaceEmbeddingClient(api_key=hf_key) as client:
+            vectors = client.embed_batch([c["content_text"] for c in chunks])
+        upsert_embeddings(session, state["patch_version"], chunks, vectors)
+
+    return [
+        BatchStep("collect", step_collect),
+        BatchStep("normalize", step_normalize),
+        BatchStep("embed", step_embed),
+    ]
+
+
+def main() -> int:
+    session = create_session()
+    state: dict = {}
+
+    def on_trigger(before: str | None, after: str) -> None:
+        state["patch_version"] = after
+        with OpggMcpClient() as opgg:
+            set_number = opgg.list_item_combinations().get("set")
+        ensure_patch(session, after, int(set_number))
+        session.commit()
+
+        result = run_batch_with_atomic_promotion(
+            session, after, _build_steps(session, int(set_number), state)
+        )
+        session.commit()
+        print(
+            f"배치 실행 결과: success={result.success} failed_step={result.failed_step}"
+        )
+
+    with OpggMcpClient() as opgg:
+        detection = run_patch_detection(session, opgg, on_trigger)
+    session.commit()
+    print(
+        f"패치 감지: triggered={detection.triggered} {detection.patch_version_before} -> {detection.patch_version_after}"
+    )
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
