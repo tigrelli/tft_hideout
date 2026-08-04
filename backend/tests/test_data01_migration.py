@@ -18,7 +18,14 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "name_en",
         "cost",
     },
-    "traits": {"id", "patch_version", "name_kr", "name_en", "tier_thresholds"},
+    "traits": {
+        "id",
+        "patch_version",
+        "riot_trait_id",
+        "name_kr",
+        "name_en",
+        "tier_thresholds",
+    },
     "champion_traits": {"champion_id", "trait_id"},
     "items": {
         "id",

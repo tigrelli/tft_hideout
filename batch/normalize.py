@@ -1,0 +1,439 @@
+"""DATA-10: op.gg(DATA-08)·Community Dragon(DATA-09) raw 응답 -> 구조화 테이블 upsert.
+
+정합성 원칙(policies.md 3번): 모든 레코드에 patch_version 태깅, 동일 패치 내
+재수집은 upsert(같은 (patch_version, 원본 ID) 행을 갱신), 다른 패치 행은 절대
+덮어쓰지 않는다(새 patch_version은 항상 새 행). patches.is_current 전환은
+DATA-13 몫이라 여기서는 건드리지 않는다.
+
+comps/comp_champions는 이번 TASK 범위에 포함하지만 comp_augments는 op.gg
+5개 도구 어디에도 조합-증강체 연결 데이터가 없어 채우지 않는다(PM 확인,
+2026-08-04) — 데이터 소스가 생기면 그때 추가한다.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+import db_session as batch_db
+
+models = batch_db.models
+
+_BADGE_LABELS = {
+    "difficulty": "난이도",
+    "tempo": "템포",
+    "reroll": "리롤 성향",
+    "honey": "이코노미(하이퍼롤)",
+    "ppm": "파워스파이크 속도",
+}
+
+
+def _find_set_entry(
+    cdragon_data: dict[str, Any], set_number: int
+) -> dict[str, Any] | None:
+    for entry in cdragon_data.get("setData", []):
+        if entry.get("number") == set_number:
+            return entry
+    return None
+
+
+def _augment_table_rows(table: dict[str, Any]) -> list[dict[str, Any]]:
+    headers = table.get("headers", [])
+    return [dict(zip(headers, row, strict=True)) for row in table.get("rows", [])]
+
+
+def _or_default(value: Any, default: Any) -> Any:
+    """dict.get(key, default)는 키가 아예 없을 때만 default를 쓰고 값이 명시적으로
+    None이면 None을 그대로 반환한다 — op.gg 실응답엔 category/desc 등이 null로
+    오는 경우가 실제로 있어(2026-08-04 실호출로 확인) NOT NULL 컬럼에 넣기 전에
+    이 헬퍼로 한 번 더 방어한다."""
+    return default if value is None else value
+
+
+# ---- 순수 변환 함수(DB 미접근, 유닛 테스트 대상) ------------------------------
+
+
+def champion_rows(
+    cdragon_ko: dict[str, Any], cdragon_en: dict[str, Any], set_number: int
+) -> list[dict[str, Any]]:
+    """Community Dragon 세트 데이터에서 챔피언 목록을 만든다(op.gg는 챔피언
+    표시 이름을 주지 않아 이 소스가 유일함, DATA-09 결정)."""
+    entry_ko = _find_set_entry(cdragon_ko, set_number)
+    entry_en = _find_set_entry(cdragon_en, set_number)
+    if not entry_ko or not entry_en:
+        return []
+    en_by_id = {c["apiName"]: c for c in entry_en.get("champions", [])}
+    rows = []
+    for c_ko in entry_ko.get("champions", []):
+        api_name = c_ko["apiName"]
+        c_en = en_by_id.get(api_name)
+        if c_en is None:
+            continue
+        rows.append(
+            {
+                "riot_champion_id": api_name,
+                "name_kr": c_ko["name"],
+                "name_en": c_en["name"],
+                "cost": c_ko["cost"],
+            }
+        )
+    return rows
+
+
+def trait_rows(
+    cdragon_ko: dict[str, Any], cdragon_en: dict[str, Any], set_number: int
+) -> list[dict[str, Any]]:
+    """op.gg 5개 도구엔 특성(trait) 데이터가 전혀 없어 Community Dragon만 사용."""
+    entry_ko = _find_set_entry(cdragon_ko, set_number)
+    entry_en = _find_set_entry(cdragon_en, set_number)
+    if not entry_ko or not entry_en:
+        return []
+    en_by_id = {t["apiName"]: t for t in entry_en.get("traits", [])}
+    rows = []
+    for t_ko in entry_ko.get("traits", []):
+        api_name = t_ko["apiName"]
+        t_en = en_by_id.get(api_name)
+        if t_en is None:
+            continue
+        rows.append(
+            {
+                "riot_trait_id": api_name,
+                "name_kr": t_ko["name"],
+                "name_en": t_en["name"],
+                "tier_thresholds": t_ko.get("effects", []),
+            }
+        )
+    return rows
+
+
+def item_rows(
+    items_ko: dict[str, Any], items_en: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """op.gg tft_list_item_combinations(ko/en 각 1회 호출 결과)에서 아이템 목록을 만든다."""
+    en_by_id = {i["apiName"]: i for i in items_en.get("data", [])}
+    rows = []
+    for i_ko in items_ko.get("data", []):
+        api_name = i_ko["apiName"]
+        i_en = en_by_id.get(api_name)
+        if i_en is None:
+            continue
+        rows.append(
+            {
+                "riot_item_id": api_name,
+                "name_kr": _or_default(i_ko.get("name"), api_name),
+                "name_en": _or_default(i_en.get("name"), api_name),
+                "item_type": _or_default(i_ko.get("category"), "unknown"),
+                "components": _or_default(i_ko.get("composition"), []),
+                "stats": _or_default(i_ko.get("effects"), {}),
+            }
+        )
+    return rows
+
+
+def augment_rows(
+    augments_ko: dict[str, Any], augments_en: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """op.gg tft_list_augments(ko/en 각 1회 호출 결과)에서 증강체 목록을 만든다.
+
+    is_legend_related은 항상 False로 고정한다 — DATA-07 결정: op.gg 응답에 라벨이
+    없고 현재 Set 17엔 Legends 메커니즘 자체가 없다(목록 관리 인프라는 필요해질
+    때 만들기로 함, YAGNI).
+    """
+    en_by_id = {r["apiName"]: r for r in _augment_table_rows(augments_en)}
+    rows = []
+    for r_ko in _augment_table_rows(augments_ko):
+        api_name = r_ko["apiName"]
+        r_en = en_by_id.get(api_name)
+        if r_en is None:
+            continue
+        rows.append(
+            {
+                "riot_augment_id": api_name,
+                "name_kr": _or_default(r_ko.get("name"), api_name),
+                "name_en": _or_default(r_en.get("name"), api_name),
+                "tier": _or_default(r_ko.get("tier"), "unknown"),
+                "description": _or_default(r_ko.get("desc"), ""),
+                "is_legend_related": False,
+            }
+        )
+    return rows
+
+
+def _champion_display_name(champion_names: dict[str, str], champion_id: str) -> str:
+    return champion_names.get(champion_id, champion_id)
+
+
+def build_playstyle_text(deck: dict[str, Any], champion_names: dict[str, str]) -> str:
+    """op.gg 응답엔 조합 설명 텍스트가 없어 `badge`(difficulty/tempo/reroll/honey/ppm)와
+    캐리 챔피언으로 결정론적으로 생성한다(LLM 미사용, PM 승인 2026-08-04). 정확한 문구는
+    추후 PM/FE-03에서 다듬을 수 있는 자리표시자 성격이 있다."""
+    parts: list[str] = []
+
+    carry_ids = [u["key"] for u in deck.get("units", []) if u.get("isCore")]
+    carry_names = [_champion_display_name(champion_names, cid) for cid in carry_ids]
+    if carry_names:
+        parts.append("/".join(carry_names) + " 캐리")
+
+    for badge in deck.get("badge", []):
+        key, value = badge.get("key"), badge.get("value")
+        if value is None or value is False:
+            continue
+        label = _BADGE_LABELS.get(key, key)
+        parts.append(label if value is True else f"{label} {value}")
+
+    return " · ".join(parts) if parts else "정보 없음"
+
+
+def comp_rows(
+    meta_decks: dict[str, Any], champion_names: dict[str, str], lang: str = "ko_KR"
+) -> list[dict[str, Any]]:
+    """op.gg tft_list_meta_decks 응답에서 조합 목록을 만든다."""
+    rows = []
+    for deck in meta_decks.get("data", []):
+        stat = deck.get("stat", {})
+        deck_stat = stat.get("deck", {})
+        name_map = deck.get("name", {})
+        rows.append(
+            {
+                "riot_comp_id": deck["id"],
+                "name": name_map.get(lang) or next(iter(name_map.values()), deck["id"]),
+                "tier_rank": _or_default(stat.get("opTier"), "unknown"),
+                "avg_place": _or_default(deck_stat.get("avgPlacement"), 0.0),
+                "play_rate": _or_default(deck_stat.get("pickRate"), 0.0),
+                "win_rate": deck_stat.get("winRate"),
+                "playstyle_text": build_playstyle_text(deck, champion_names),
+                "updated_at": _parse_updated_at(meta_decks),
+            }
+        )
+    return rows
+
+
+def _parse_updated_at(meta_decks: dict[str, Any]) -> datetime:
+    raw = meta_decks.get("metadata", {}).get("gameStatDateTime")
+    if not raw:
+        return datetime.now(UTC)
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(UTC)
+
+
+def comp_champion_rows(deck: dict[str, Any]) -> list[dict[str, Any]]:
+    """deck 하나(comp_rows에 넘긴 것과 동일 deck)에서 조합-챔피언 매핑을 만든다.
+    champion_id(riot ID) -> DB id 해석은 호출부(upsert_comp_champions)에서 한다."""
+    return [
+        {
+            "riot_champion_id": unit["key"],
+            "is_carry": bool(unit.get("isCore", False)),
+            "recommended_items": unit.get("items", []),
+        }
+        for unit in deck.get("units", [])
+    ]
+
+
+def champion_item_build_rows(build_response: dict[str, Any]) -> list[dict[str, Any]]:
+    """op.gg tft_get_champion_item_build(champion_id) 응답에서 빌드 목록을 만든다."""
+    rows = []
+    for entry in build_response.get("data", []):
+        total = entry.get("totalChampionCount") or 0
+        item_count = entry.get("itemCount") or 0
+        rows.append(
+            {
+                "item_combination": _or_default(entry.get("itemNames"), []),
+                "play_rate": (item_count / total) if total else 0.0,
+                "avg_place": _or_default(entry.get("avgPlacement"), 0.0),
+                "win_rate": _or_default(entry.get("winRate"), 0.0),
+            }
+        )
+    return rows
+
+
+# ---- DB upsert 함수 -----------------------------------------------------------
+
+
+def ensure_patch(
+    session: Session,
+    version: str,
+    set_number: int,
+    released_at: datetime | None = None,
+) -> None:
+    """patches 행이 없으면 생성한다(is_current는 건드리지 않음 — DATA-13 몫)."""
+    now = datetime.now(UTC)
+    stmt = pg_insert(models.Patch).values(
+        version=version,
+        set_number=set_number,
+        released_at=released_at or now,
+        is_current=False,
+        detected_at=now,
+    )
+    stmt = stmt.on_conflict_do_nothing(index_elements=["version"])
+    session.execute(stmt)
+
+
+def upsert_champions(
+    session: Session, patch_version: str, rows: list[dict[str, Any]]
+) -> dict[str, int]:
+    """반환: {riot_champion_id: db_id}. 빈 rows면 빈 dict."""
+    if not rows:
+        return {}
+    stmt = pg_insert(models.Champion).values(
+        [{**row, "patch_version": patch_version} for row in rows]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["patch_version", "riot_champion_id"],
+        set_={
+            "name_kr": stmt.excluded.name_kr,
+            "name_en": stmt.excluded.name_en,
+            "cost": stmt.excluded.cost,
+        },
+    ).returning(models.Champion.id, models.Champion.riot_champion_id)
+    return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
+
+
+def upsert_traits(
+    session: Session, patch_version: str, rows: list[dict[str, Any]]
+) -> dict[str, int]:
+    if not rows:
+        return {}
+    stmt = pg_insert(models.Trait).values(
+        [{**row, "patch_version": patch_version} for row in rows]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["patch_version", "riot_trait_id"],
+        set_={
+            "name_kr": stmt.excluded.name_kr,
+            "name_en": stmt.excluded.name_en,
+            "tier_thresholds": stmt.excluded.tier_thresholds,
+        },
+    ).returning(models.Trait.id, models.Trait.riot_trait_id)
+    return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
+
+
+def upsert_items(
+    session: Session, patch_version: str, rows: list[dict[str, Any]]
+) -> dict[str, int]:
+    if not rows:
+        return {}
+    stmt = pg_insert(models.Item).values(
+        [{**row, "patch_version": patch_version} for row in rows]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["patch_version", "riot_item_id"],
+        set_={
+            "name_kr": stmt.excluded.name_kr,
+            "name_en": stmt.excluded.name_en,
+            "item_type": stmt.excluded.item_type,
+            "components": stmt.excluded.components,
+            "stats": stmt.excluded.stats,
+        },
+    ).returning(models.Item.id, models.Item.riot_item_id)
+    return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
+
+
+def upsert_augments(
+    session: Session, patch_version: str, rows: list[dict[str, Any]]
+) -> dict[str, int]:
+    if not rows:
+        return {}
+    stmt = pg_insert(models.Augment).values(
+        [{**row, "patch_version": patch_version} for row in rows]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["patch_version", "riot_augment_id"],
+        set_={
+            "name_kr": stmt.excluded.name_kr,
+            "name_en": stmt.excluded.name_en,
+            "tier": stmt.excluded.tier,
+            "description": stmt.excluded.description,
+            "is_legend_related": stmt.excluded.is_legend_related,
+        },
+    ).returning(models.Augment.id, models.Augment.riot_augment_id)
+    return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
+
+
+def upsert_comps(
+    session: Session, patch_version: str, rows: list[dict[str, Any]]
+) -> dict[str, int]:
+    """반환: {riot_comp_id: db_id}."""
+    if not rows:
+        return {}
+    stmt = pg_insert(models.Comp).values(
+        [{**row, "patch_version": patch_version} for row in rows]
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["patch_version", "riot_comp_id"],
+        set_={
+            "name": stmt.excluded.name,
+            "tier_rank": stmt.excluded.tier_rank,
+            "avg_place": stmt.excluded.avg_place,
+            "play_rate": stmt.excluded.play_rate,
+            "win_rate": stmt.excluded.win_rate,
+            "playstyle_text": stmt.excluded.playstyle_text,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    ).returning(models.Comp.id, models.Comp.riot_comp_id)
+    return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
+
+
+def upsert_comp_champions(
+    session: Session,
+    comp_id: int,
+    rows: list[dict[str, Any]],
+    champion_ids_by_riot_id: dict[str, int],
+) -> None:
+    """rows는 comp_champion_rows() 결과(riot_champion_id 포함). 매핑에 없는
+    챔피언(예: PVE 전용이라 champions 테이블에 없는 유닛)은 건너뛴다."""
+    values = []
+    for row in rows:
+        champion_id = champion_ids_by_riot_id.get(row["riot_champion_id"])
+        if champion_id is None:
+            continue
+        values.append(
+            {
+                "comp_id": comp_id,
+                "champion_id": champion_id,
+                "is_carry": row["is_carry"],
+                "recommended_items": row["recommended_items"],
+            }
+        )
+    if not values:
+        return
+    stmt = pg_insert(models.CompChampion).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["comp_id", "champion_id"],
+        set_={
+            "is_carry": stmt.excluded.is_carry,
+            "recommended_items": stmt.excluded.recommended_items,
+        },
+    )
+    session.execute(stmt)
+
+
+def replace_champion_item_builds(
+    session: Session,
+    champion_id: int,
+    patch_version: str,
+    rows: list[dict[str, Any]],
+) -> None:
+    """champion_item_builds는 안정적인 자연키가 없어(빌드 조합이 매번 순위가
+    바뀔 수 있음) 챔피언·패치 단위로 기존 행을 지우고 새로 넣는다(replace-set)."""
+    from sqlalchemy import delete
+
+    session.execute(
+        delete(models.ChampionItemBuild).where(
+            models.ChampionItemBuild.champion_id == champion_id,
+            models.ChampionItemBuild.patch_version == patch_version,
+        )
+    )
+    if rows:
+        session.execute(
+            pg_insert(models.ChampionItemBuild).values(
+                [
+                    {**row, "champion_id": champion_id, "patch_version": patch_version}
+                    for row in rows
+                ]
+            )
+        )
