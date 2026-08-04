@@ -1,6 +1,7 @@
 """CHAT-07: 답변에서 검증된(CHAT-06 근거검증을 통과한) 고유명사를 상세 페이지
-링크로 치환한다. URL 구조는 IA v1.2를 그대로 따른다(glossary.md "IA 화면 7개"):
-조합만 `/comps/{comp_id}` 개별 상세 페이지가 있고, 아이템 빌드·증강체는 IA상
+링크로 치환한다. 조합 링크는 `/comps?id={comp_id}` 쿼리스트링 형식(FE-04, PM 결정
+2026-08-04 — 정적 export 특성상 패치마다 comp_id가 전부 새로 생겨 경로 방식이면
+재배포 전까지 새 조합 링크가 깨짐, glossary.md 참고). 아이템 빌드·증강체는 IA상
 개별 상세 페이지가 없어 각각의 목록 페이지(`/items/builds`, `/augments`)로 연결한다.
 """
 
@@ -21,7 +22,7 @@ _LIST_PAGE_URLS: dict[str, str] = {
 
 def _link_target(doc: MetaDocumentEmbedding) -> str:
     if doc.source_table == "comps":
-        return f"/comps/{doc.source_id}"
+        return f"/comps?id={doc.source_id}"
     return _LIST_PAGE_URLS.get(doc.doc_type, "/")
 
 

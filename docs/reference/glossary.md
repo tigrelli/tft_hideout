@@ -49,7 +49,7 @@
 | 화면 | URL |
 |---|---|
 | 티어리스트(홈) | `/` (= `/tierlist`) |
-| 조합 상세 | `/comps/{comp_id}` |
+| 조합 상세 | `/comps?id={comp_id}`(2026-08-04 PM 결정, 원문 IA v1.2는 `/comps/{comp_id}` — 정적 export에서 패치마다 comp_id가 전부 새로 생겨 재배포 없이는 신규 조합 상세 링크가 깨지는 문제를 원천 차단하기 위해 쿼리스트링으로 변경, FE-04 작업결과 참고) |
 | 아이템 빌드 | `/items/builds` |
 | 증강체 정보 | `/augments` |
 | 사후 패인 분석 | `/analysis` |

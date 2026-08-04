@@ -27,7 +27,7 @@ def _doc(
     )
 
 
-# ---- 조합: 개별 상세 페이지(/comps/{comp_id}) --------------------------------
+# ---- 조합: 개별 상세 페이지(/comps?id={comp_id}) ------------------------------
 
 
 def test_comp_mention_links_to_comp_detail_page() -> None:
@@ -36,18 +36,18 @@ def test_comp_mention_links_to_comp_detail_page() -> None:
 
     result = insert_links(answer, docs)
 
-    assert "[이즈리얼 캐리](/comps/42)" in result
+    assert "[이즈리얼 캐리](/comps?id=42)" in result
     assert "'이즈리얼 캐리'" not in result
 
 
 def test_playstyle_doc_also_links_to_comp_detail_page() -> None:
-    """playstyle doc_type도 source_table은 comps라 동일하게 /comps/{id}로 연결."""
+    """playstyle doc_type도 source_table은 comps라 동일하게 /comps?id={id}로 연결."""
     answer = "'아이오니아 마법사' 조합의 플레이 스타일을 설명드릴게요."
     docs = [_doc("playstyle", "comps", 7, name="아이오니아 마법사")]
 
     result = insert_links(answer, docs)
 
-    assert "[아이오니아 마법사](/comps/7)" in result
+    assert "[아이오니아 마법사](/comps?id=7)" in result
 
 
 # ---- 아이템 빌드/증강체: 개별 상세 페이지 없음 -> 목록 페이지 -----------------
@@ -81,7 +81,7 @@ def test_unmatched_quoted_name_is_left_unlinked() -> None:
     result = insert_links(answer, docs)
 
     assert result == answer
-    assert "](/comps/" not in result
+    assert "](/comps?id=" not in result
 
 
 def test_no_quotes_at_all_passes_through_unchanged() -> None:
@@ -98,7 +98,7 @@ def test_multiple_mentions_of_same_name_all_replaced() -> None:
 
     result = insert_links(answer, docs)
 
-    assert result.count("[이즈리얼 캐리](/comps/3)") == 2
+    assert result.count("[이즈리얼 캐리](/comps?id=3)") == 2
 
 
 def test_mixed_verified_and_unverified_names() -> None:
@@ -107,5 +107,5 @@ def test_mixed_verified_and_unverified_names() -> None:
 
     result = insert_links(answer, docs)
 
-    assert "[이즈리얼 캐리](/comps/3)" in result
+    assert "[이즈리얼 캐리](/comps?id=3)" in result
     assert "'환상의 5티어 조합'" in result

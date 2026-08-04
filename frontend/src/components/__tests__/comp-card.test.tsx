@@ -35,8 +35,8 @@ describe("CompCard", () => {
     expect(screen.getByLabelText("캐리 챔피언 3명")).toBeInTheDocument();
   });
 
-  it("조합 상세 페이지(/comps/{id})로 링크된다", () => {
+  it("조합 상세 페이지(/comps?id={id})로 링크된다", () => {
     render(<CompCard comp={comp} />);
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/comps/42");
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/comps?id=42");
   });
 });

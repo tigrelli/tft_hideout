@@ -17,6 +17,35 @@ export interface TierlistResponse {
   comps: CompSummary[];
 }
 
+export interface ChampionInComp {
+  champion_id: number;
+  name_kr: string;
+  name_en: string;
+  is_carry: boolean;
+  recommended_items: string[];
+  recommended_item_names: string[];
+}
+
+export interface AugmentInComp {
+  augment_id: number;
+  name_kr: string;
+  name_en: string;
+  priority: number;
+}
+
+export interface CompDetailResponse {
+  id: number;
+  patch_version: string;
+  name: string;
+  tier_rank: string;
+  avg_place: number;
+  play_rate: number;
+  win_rate: number | null;
+  playstyle_text: string;
+  champions: ChampionInComp[];
+  augments: AugmentInComp[];
+}
+
 export interface CurrentPatchResponse {
   version: string;
   set_number: number;
