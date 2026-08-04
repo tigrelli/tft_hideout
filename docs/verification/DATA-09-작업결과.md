@@ -1,7 +1,7 @@
 # DATA-09 : 작업결과
 
 - **TASK**: ID-이름 매핑 갱신 로직 구현
-- **상태**: 완료(PM 확인 요청 중)
+- **상태**: 완료(PM 승인 2026-08-04)
 - **선행 TASK**: DATA-06, DATA-08
 - **근거 문서**: 설계서 4.3
 - **변경 파일**: `batch/id_name_mapping.py`(신규), `batch/tests/test_data09_id_name_mapping.py`(신규)
