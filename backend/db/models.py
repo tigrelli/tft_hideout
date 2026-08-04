@@ -1,7 +1,16 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -29,6 +38,11 @@ class Patch(Base):
 
 class Champion(Base):
     __tablename__ = "champions"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version", "riot_champion_id", name="uq_champions_patch_riot_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(
@@ -42,11 +56,17 @@ class Champion(Base):
 
 class Trait(Base):
     __tablename__ = "traits"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version", "riot_trait_id", name="uq_traits_patch_riot_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(
         String, ForeignKey("patches.version"), nullable=False
     )
+    riot_trait_id: Mapped[str] = mapped_column(String, nullable=False)
     name_kr: Mapped[str] = mapped_column(String, nullable=False)
     name_en: Mapped[str] = mapped_column(String, nullable=False)
     tier_thresholds: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -63,6 +83,11 @@ class ChampionTrait(Base):
 
 class Item(Base):
     __tablename__ = "items"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version", "riot_item_id", name="uq_items_patch_riot_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(
@@ -78,6 +103,11 @@ class Item(Base):
 
 class Augment(Base):
     __tablename__ = "augments"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version", "riot_augment_id", name="uq_augments_patch_riot_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(
@@ -95,11 +125,17 @@ class Augment(Base):
 
 class Comp(Base):
     __tablename__ = "comps"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version", "riot_comp_id", name="uq_comps_patch_riot_id"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(
         String, ForeignKey("patches.version"), nullable=False
     )
+    riot_comp_id: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     tier_rank: Mapped[str] = mapped_column(String, nullable=False)
     rank_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="all")
@@ -275,6 +311,15 @@ class PuuidCache(Base):
 
 class MetaDocumentEmbedding(Base):
     __tablename__ = "meta_document_embeddings"
+    __table_args__ = (
+        UniqueConstraint(
+            "patch_version",
+            "doc_type",
+            "source_table",
+            "source_id",
+            name="uq_meta_document_embeddings_patch_doctype_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     patch_version: Mapped[str] = mapped_column(

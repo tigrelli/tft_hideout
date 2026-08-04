@@ -9,6 +9,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "comps": {
         "id",
         "patch_version",
+        "riot_comp_id",
         "name",
         "tier_rank",
         "rank_tier",

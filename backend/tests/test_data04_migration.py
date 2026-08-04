@@ -37,13 +37,13 @@ def _seed_patch_and_docs(engine: Engine) -> None:
             ("doc_orthogonal", _one_hot(EMBEDDING_DIM, 1, 1.0)),
             ("doc_opposite", _one_hot(EMBEDDING_DIM, 0, -1.0)),
         ]
-        for name, vector in docs:
+        for source_id, (name, vector) in enumerate(docs, start=1):
             session.execute(
                 insert(MetaDocumentEmbedding).values(
                     patch_version="14.5",
                     doc_type="comp",
                     source_table="comps",
-                    source_id=1,
+                    source_id=source_id,
                     content_text=name,
                     embedding=vector,
                     doc_metadata={"name": name},

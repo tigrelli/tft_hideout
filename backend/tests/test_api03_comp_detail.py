@@ -55,6 +55,7 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
         session.execute(
             insert(Comp).values(
                 patch_version="14.5",
+                riot_comp_id="fake-comp-reroll-yone",
                 name="Reroll Yone",
                 tier_rank="S",
                 rank_tier="all",

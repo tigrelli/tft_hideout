@@ -1,0 +1,38 @@
+name: Patch Detection & Batch Collection
+
+# DATA-14: schedule 트리거는 아직 켜지 않았다(PM 결정, 2026-08-04).
+# PM이 workflow_dispatch로 먼저 1회 수동 실행해 실제 운영 DB(Supabase)에 대해
+# 검증한 뒤, 문제없으면 아래 schedule 블록의 주석을 해제해 매시간 자동 실행으로
+# 전환한다(PRD 9-1 설계). 그 전까지는 수동 실행으로만 동작한다.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 * * * *"
+
+concurrency:
+  group: patch-detection
+  # DATA-14 목적 그 자체: 이미 실행 중인 배치가 있으면 새 트리거는 취소하지 않고
+  # 대기열에서 기다렸다가 실행한다(CI의 cancel-in-progress:true와 반대 — 배치
+  # 도중 취소하면 부분 적재 상태가 애매해질 수 있어 안전하게 순차 실행).
+  cancel-in-progress: false
+
+jobs:
+  detect-and-collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install batch dependencies
+        working-directory: batch
+        run: pip install -r requirements.txt
+      - name: Run patch detection & batch collection
+        working-directory: batch
+        run: python run_patch_batch.py

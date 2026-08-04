@@ -5,10 +5,11 @@
 
 ## 1. Legend 계열 증강체 승률 비노출
 
-- 대상: `augments.is_legend_related=true`
+- 대상: `augments.is_legend_related=true`(**`comps.win_rate`·`champion_item_builds.win_rate`는 이 정책 대상 아님 — "S티어 덱"/"리롤 덱" 같은 조합 단위 질의는 승률 그대로 노출 가능**)
 - 이중 방어: (1) 챗봇 프롬프트 컨텍스트 구성 단계에서 `win_rate` 필드 자체를 제외(전처리) (2) 답변 후처리에서 '승률' 주변 숫자 패턴 재스캔 필터
 - 웹사이트(FE-06)는 숫자 대신 "승률 표시 안함" 텍스트만 렌더링, DOM에 숫자 자체가 없어야 함
 - 담당 TASK: API-05, CHAT-06, FE-06 | 테스트: TEST-00 사전 시나리오 필수
+- 참고(DATA-07 스파이크, 2026-08-04): Set 17에는 Legends 메커니즘 자체가 없어 현재 `is_legend_related`는 전부 `false`. 목록 관리 인프라는 필요해지는 시점에 만든다(`docs/spike/legend-augment.md`)
 
 ## 2. 상대 플레이어 프라이버시
 
