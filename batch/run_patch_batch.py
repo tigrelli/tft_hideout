@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sys
 
+from cache_cleanup import delete_stale_chat_answer_cache
 from db_session import create_session
 from embeddings import HuggingFaceEmbeddingClient, collect_chunks, upsert_embeddings
 from id_name_mapping import CommunityDragonClient, build_name_maps
@@ -117,6 +118,9 @@ def main() -> int:
         result = run_batch_with_atomic_promotion(
             session, after, _build_steps(session, int(set_number), state)
         )
+        if result.success:
+            deleted = delete_stale_chat_answer_cache(session, after)
+            print(f"캐시 정리(DATA-15): chat_answer_cache {deleted}행 삭제")
         session.commit()
         print(
             f"배치 실행 결과: success={result.success} failed_step={result.failed_step}"
