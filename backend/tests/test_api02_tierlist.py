@@ -38,7 +38,6 @@ def seeded_engine(migrated_engine: Engine) -> Engine:
                 riot_comp_id="fake-comp-reroll-yone",
                 name="Reroll Yone",
                 tier_rank="S",
-                rank_tier="all",
                 avg_place=4.2,
                 play_rate=0.05,
                 win_rate=0.12,
@@ -52,7 +51,6 @@ def seeded_engine(migrated_engine: Engine) -> Engine:
                 riot_comp_id="fake-comp-old-patch",
                 name="Old Patch Comp",
                 tier_rank="A",
-                rank_tier="all",
                 avg_place=4.5,
                 play_rate=0.03,
                 win_rate=0.10,
@@ -80,12 +78,11 @@ def client(seeded_engine: Engine) -> TestClient:
     app.dependency_overrides.clear()
 
 
-def test_tierlist_filters_by_patch_and_rank(client: TestClient) -> None:
-    response = client.get("/api/v1/catalog/tierlist?patch=14.5&rank=all")
+def test_tierlist_filters_by_patch(client: TestClient) -> None:
+    response = client.get("/api/v1/catalog/tierlist?patch=14.5")
     assert response.status_code == 200
     body = response.json()
     assert body["patch_version"] == "14.5"
-    assert body["rank"] == "all"
     assert [c["name"] for c in body["comps"]] == ["Reroll Yone"]
 
 
@@ -97,21 +94,7 @@ def test_tierlist_defaults_to_current_patch_when_omitted(client: TestClient) -> 
     assert [c["name"] for c in body["comps"]] == ["Reroll Yone"]
 
 
-def test_tierlist_returns_empty_list_for_valid_but_unmatched_rank(
-    client: TestClient,
-) -> None:
-    response = client.get("/api/v1/catalog/tierlist?patch=14.5&rank=challenger")
-    assert response.status_code == 200
-    assert response.json()["comps"] == []
-
-
 def test_tierlist_invalid_patch_format_returns_400(client: TestClient) -> None:
     response = client.get("/api/v1/catalog/tierlist?patch=not-a-patch")
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_patch"
-
-
-def test_tierlist_invalid_rank_returns_400(client: TestClient) -> None:
-    response = client.get("/api/v1/catalog/tierlist?rank=bronze")
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "invalid_rank"

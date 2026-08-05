@@ -22,8 +22,6 @@ from db.session import get_db
 router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
 
 PATCH_PATTERN = re.compile(r"^\d+\.\d+$")
-# op.gg 실제 랭크 구간 값은 DATA-05 스파이크 완료 후 확정 — 지금은 "all"만 실사용, 나머지는 자리표시
-ALLOWED_RANKS = {"all", "challenger", "grandmaster", "master"}
 # op.gg tft_list_augments의 실제 tier 값 3종(DATA-05 스파이크, docs/spike/legend-augment.md)
 ALLOWED_AUGMENT_TIERS = {"gold", "silver", "prism"}
 # op.gg tft_get_champion_item_build 실호출 결과 챔피언 1명당 최대 1735개 조합까지
@@ -45,7 +43,6 @@ class CompSummary(BaseModel):
 
 class TierlistResponse(BaseModel):
     patch_version: str
-    rank: str
     comps: list[CompSummary]
 
 
@@ -152,25 +149,16 @@ def catalog_root() -> dict[str, str]:
 def get_tierlist(
     db: Annotated[Session, Depends(get_db)],
     patch: str | None = Query(default=None),
-    rank: str = Query(default="all"),
 ) -> TierlistResponse:
     if patch is not None and not PATCH_PATTERN.match(patch):
         raise _invalid_param_error(
             "invalid_patch", "patch는 'MAJOR.MINOR' 형식이어야 합니다 (예: 14.5)"
         )
-    if rank not in ALLOWED_RANKS:
-        raise _invalid_param_error(
-            "invalid_rank", f"rank는 {sorted(ALLOWED_RANKS)} 중 하나여야 합니다"
-        )
 
     resolved_patch = _resolve_patch(db, patch)
 
     comps = (
-        db.execute(
-            select(Comp).where(
-                Comp.patch_version == resolved_patch, Comp.rank_tier == rank
-            )
-        )
+        db.execute(select(Comp).where(Comp.patch_version == resolved_patch))
         .scalars()
         .all()
     )
@@ -198,7 +186,7 @@ def get_tierlist(
             )
         )
 
-    return TierlistResponse(patch_version=resolved_patch, rank=rank, comps=summaries)
+    return TierlistResponse(patch_version=resolved_patch, comps=summaries)
 
 
 @router.get("/comps/{comp_id}", response_model=CompDetailResponse)
