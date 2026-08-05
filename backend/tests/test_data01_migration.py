@@ -17,6 +17,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "name_kr",
         "name_en",
         "cost",
+        "square_icon_url",
     },
     "traits": {
         "id",

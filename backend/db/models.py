@@ -52,6 +52,7 @@ class Champion(Base):
     name_kr: Mapped[str] = mapped_column(String, nullable=False)
     name_en: Mapped[str] = mapped_column(String, nullable=False)
     cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    square_icon_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Trait(Base):

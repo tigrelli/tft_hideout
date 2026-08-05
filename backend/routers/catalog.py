@@ -30,6 +30,12 @@ ALLOWED_AUGMENT_TIERS = {"gold", "silver", "prism"}
 TOP_BUILDS_PER_CHAMPION = 10
 
 
+class CarryChampion(BaseModel):
+    champion_id: int
+    name_kr: str
+    square_icon_url: str | None
+
+
 class CompSummary(BaseModel):
     id: int
     name: str
@@ -38,7 +44,7 @@ class CompSummary(BaseModel):
     play_rate: float
     win_rate: float | None
     playstyle_text: str
-    carry_champion_ids: list[int]
+    carry_champions: list[CarryChampion]
 
 
 class TierlistResponse(BaseModel):
@@ -165,14 +171,22 @@ def get_tierlist(
 
     summaries = []
     for comp in comps:
-        carry_champion_ids = list(
-            db.execute(
-                select(CompChampion.champion_id).where(
-                    CompChampion.comp_id == comp.id,
-                    CompChampion.is_carry.is_(True),
-                )
-            ).scalars()
-        )
+        carry_rows = db.execute(
+            select(Champion)
+            .join(CompChampion, CompChampion.champion_id == Champion.id)
+            .where(
+                CompChampion.comp_id == comp.id,
+                CompChampion.is_carry.is_(True),
+            )
+        ).scalars()
+        carry_champions = [
+            CarryChampion(
+                champion_id=champion.id,
+                name_kr=champion.name_kr,
+                square_icon_url=champion.square_icon_url,
+            )
+            for champion in carry_rows
+        ]
         summaries.append(
             CompSummary(
                 id=comp.id,
@@ -182,7 +196,7 @@ def get_tierlist(
                 play_rate=comp.play_rate,
                 win_rate=comp.win_rate,
                 playstyle_text=comp.playstyle_text,
-                carry_champion_ids=carry_champion_ids,
+                carry_champions=carry_champions,
             )
         )
 
