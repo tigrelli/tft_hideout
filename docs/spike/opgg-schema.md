@@ -69,6 +69,18 @@
 ```
 (순서는 `headers: [apiName, desc, name, tier, imageUrl]`와 대응)
 
+## 7. `tft_list_meta_decks`는 랭크(챌린저/그랜드마스터/마스터) 파라미터를 지원하지 않음 (중요, 2026-08-05 재확인)
+
+API-02(GET /catalog/tierlist)가 `rank` 쿼리 파라미터(all/challenger/grandmaster/master)로 필터링을 시도했으나, 실제 데이터가 없어 "전체" 외 모든 랭크에서 빈 결과만 나오는 것을 프론트 실사용 중 발견 — `tools/list`로 `tft_list_meta_decks`의 `inputSchema`를 직접 재확인한 결과:
+
+```json
+{ "type": "object", "properties": {}, "required": [] }
+```
+
+**파라미터가 전혀 없다.** 랭크 구간을 지정할 방법 자체가 op.gg MCP 쪽에 없으므로, "전체" 통합 데이터 하나만 받을 수 있고 챌린저/그랜드마스터/마스터별로 나눠 받는 것은 이 도구로는 원천적으로 불가능하다. 다른 5개 도구(`tft_get_champion_item_build`/`tft_list_item_combinations`/`tft_list_augments`/`tft_list_champions_for_item`/`tft_get_play_style`)의 `inputSchema`에도 rank/tier 유사 파라미터는 없음(champion_id/item_id/region+puuid만 요구).
+
+**PM 결정(2026-08-05)**: 랭크 필터 기능 자체를 제거한다(향후 재추가 여지 없음 — 기능이 아니라 데이터 소스의 근본적 한계). API-02의 `rank` 쿼리 파라미터·`comps.rank_tier` 컬럼·프론트 랭크 드롭다운(FE-03 FilterBar)을 전부 삭제. 상세: `docs/verification/API-02-작업결과.md`(2026-08-05 갱신), `docs/verification/API-02-rollback-작업결과.md`, 진행현황.md 2026-08-05 항목.
+
 ## 다음 세션을 위한 메모
 
 - DATA-08 구현 시 이 문서의 연결 방식(세션 핸드셰이크)과 도구별 응답 구조를 그대로 fixture 스키마 근거로 사용할 것. 값은 정책(CLAUDE.md 10.2)에 따라 합성 데이터로 치환.
