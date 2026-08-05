@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -26,6 +26,10 @@ PATCH_PATTERN = re.compile(r"^\d+\.\d+$")
 ALLOWED_RANKS = {"all", "challenger", "grandmaster", "master"}
 # op.gg tft_list_augments의 실제 tier 값 3종(DATA-05 스파이크, docs/spike/legend-augment.md)
 ALLOWED_AUGMENT_TIERS = {"gold", "silver", "prism"}
+# op.gg tft_get_champion_item_build 실호출 결과 챔피언 1명당 최대 1735개 조합까지
+# 나옴(2026-08-05 로컬 검증) — UI에 표시 가능한 수준으로 챔피언별 play_rate 상위
+# N개만 반환한다.
+TOP_BUILDS_PER_CHAMPION = 10
 
 
 class CompSummary(BaseModel):
@@ -101,7 +105,10 @@ class CompDetailResponse(BaseModel):
 class ItemBuild(BaseModel):
     id: int
     champion_id: int
-    item_combination: dict
+    champion_name_kr: str
+    champion_name_en: str
+    item_combination: list[str]
+    item_combination_names: list[str]
     play_rate: float
     avg_place: float
     win_rate: float
@@ -291,19 +298,62 @@ def get_item_builds(
 
     resolved_patch = _resolve_patch(db, patch)
 
-    stmt = select(ChampionItemBuild).where(
-        ChampionItemBuild.patch_version == resolved_patch
+    build_rank = func.row_number().over(
+        partition_by=ChampionItemBuild.champion_id,
+        order_by=ChampionItemBuild.play_rate.desc(),
     )
+    ranked = select(
+        ChampionItemBuild.id,
+        ChampionItemBuild.champion_id,
+        ChampionItemBuild.item_combination,
+        ChampionItemBuild.play_rate,
+        ChampionItemBuild.avg_place,
+        ChampionItemBuild.win_rate,
+        Champion.name_kr.label("champion_name_kr"),
+        Champion.name_en.label("champion_name_en"),
+        build_rank.label("build_rank"),
+    ).join(Champion, Champion.id == ChampionItemBuild.champion_id)
+    ranked = ranked.where(ChampionItemBuild.patch_version == resolved_patch)
     if champion_id is not None:
-        stmt = stmt.where(ChampionItemBuild.champion_id == champion_id)
-    stmt = stmt.order_by(ChampionItemBuild.play_rate.desc())
+        ranked = ranked.where(ChampionItemBuild.champion_id == champion_id)
+    ranked = ranked.subquery()
 
-    rows = db.execute(stmt).scalars().all()
+    stmt = (
+        select(ranked)
+        .where(ranked.c.build_rank <= TOP_BUILDS_PER_CHAMPION)
+        .order_by(ranked.c.play_rate.desc())
+    )
+    rows = db.execute(stmt).all()
+
+    # item_combination은 op.gg 원본 아이템 apiName 문자열이라(get_comp_detail과
+    # 동일한 이유, 위 주석 참고) items 테이블에서 같은 patch_version 기준으로
+    # 표시 이름을 조회한다.
+    item_ids = {item_id for row in rows for item_id in row.item_combination}
+    item_name_by_id = (
+        {
+            row.riot_item_id: row.name_kr
+            for row in db.execute(
+                select(Item).where(
+                    Item.patch_version == resolved_patch,
+                    Item.riot_item_id.in_(item_ids),
+                )
+            ).scalars()
+        }
+        if item_ids
+        else {}
+    )
+
     builds = [
         ItemBuild(
             id=row.id,
             champion_id=row.champion_id,
+            champion_name_kr=row.champion_name_kr,
+            champion_name_en=row.champion_name_en,
             item_combination=row.item_combination,
+            item_combination_names=[
+                item_name_by_id.get(item_id, item_id)
+                for item_id in row.item_combination
+            ],
             play_rate=row.play_rate,
             avg_place=row.avg_place,
             win_rate=row.win_rate,
