@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import Home from "@/app/page";
 import type { TierlistResponse } from "@/types/catalog";
 
 const mockTierlist: TierlistResponse = {
   patch_version: "17.8",
-  rank: "all",
   comps: [
     {
       id: 1,
@@ -21,7 +19,9 @@ const mockTierlist: TierlistResponse = {
   ],
 };
 
-// WBS FE-03 테스트 요구사항: mock API 응답 데이터 바인딩 테스트.
+// WBS FE-03 테스트 요구사항: mock API 응답 데이터 바인딩 테스트. 랭크 필터는
+// 2026-08-05 PM 결정으로 제거됨(op.gg가 랭크 구간별 데이터를 제공하지 않음,
+// docs/spike/opgg-schema.md).
 describe("Home(티어리스트) — mock API 데이터 바인딩", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -60,30 +60,5 @@ describe("Home(티어리스트) — mock API 데이터 바인딩", () => {
         screen.getByText("티어리스트를 불러오지 못했습니다."),
       ).toBeInTheDocument(),
     );
-  });
-
-  it("랭크 필터를 바꾸면 해당 rank 쿼리로 다시 호출한다", async () => {
-    const user = userEvent.setup();
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockTierlist,
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ ...mockTierlist, rank: "challenger", comps: [] }),
-      } as Response);
-
-    render(<Home />);
-    await waitFor(() =>
-      expect(screen.getByText("아이오니아 마법사")).toBeInTheDocument(),
-    );
-
-    await user.selectOptions(screen.getByLabelText("랭크"), "challenger");
-
-    await waitFor(() => {
-      const lastCall = vi.mocked(fetch).mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain("rank=challenger");
-    });
   });
 });

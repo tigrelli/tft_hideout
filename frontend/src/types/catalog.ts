@@ -13,7 +13,6 @@ export interface CompSummary {
 
 export interface TierlistResponse {
   patch_version: string;
-  rank: string;
   comps: CompSummary[];
 }
 
@@ -97,15 +96,3 @@ export interface CurrentPatchResponse {
   released_at: string;
   detected_at: string;
 }
-
-// API-02 ALLOWED_RANKS(backend/routers/catalog.py). "all" 외 나머지는 실제 랭크
-// 구간 데이터가 아직 없어(DATA-05 스파이크 이후 확정 필요) 선택은 가능하나 결과가
-// 비어있을 수 있다.
-export const RANK_OPTIONS = [
-  { value: "all", label: "전체" },
-  { value: "challenger", label: "챌린저" },
-  { value: "grandmaster", label: "그랜드마스터" },
-  { value: "master", label: "마스터" },
-] as const;
-
-export type RankValue = (typeof RANK_OPTIONS)[number]["value"];
