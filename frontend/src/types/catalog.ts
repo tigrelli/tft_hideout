@@ -1,5 +1,11 @@
 // backend/routers/catalog.py의 Pydantic 응답 모델과 1:1 대응(API-02, API-06).
 
+export interface CarryChampion {
+  champion_id: number;
+  name_kr: string;
+  square_icon_url: string | null;
+}
+
 export interface CompSummary {
   id: number;
   name: string;
@@ -8,7 +14,7 @@ export interface CompSummary {
   play_rate: number;
   win_rate: number | null;
   playstyle_text: string;
-  carry_champion_ids: number[];
+  carry_champions: CarryChampion[];
 }
 
 export interface TierlistResponse {

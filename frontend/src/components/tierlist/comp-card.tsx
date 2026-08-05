@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { CompSummary } from "@/types/catalog";
 import { TierBadge } from "@/components/tierlist/tier-badge";
@@ -7,9 +8,10 @@ import { TierBadge } from "@/components/tierlist/tier-badge";
 // 빌드 시점에 존재하는 comp_id만 정적 페이지로 만들 수 있어, 패치마다 전부 새
 // 행으로 생기는 comp_id 특성상 경로 방식이면 재배포 전까지 새 조합 링크가 전부
 // 깨짐(FE-04 작업결과 참고, PM 결정 2026-08-04).
-// champion_thumbnails는 API-02 응답에 챔피언 이름/이미지가 없어(carry_champion_ids만
-// 제공) 화면설계서 v1.2 모바일 와이어프레임 스케치의 "● ● ●" 점 표기를 그대로
-// placeholder로 사용한다(design-tokens.md "챔피언 아이콘은 그레이박스 placeholder").
+// FE-13: API-02가 carry_champions(이름·square_icon_url)를 내려주므로 실제
+// Community Dragon 챔피언 아이콘을 표시한다. 이미지가 없는 챔피언(square_icon_url
+// null)은 기존 점(●) placeholder로 폴백(design-tokens.md 그레이박스 placeholder
+// 규칙 유지).
 export function CompCard({ comp }: { comp: CompSummary }) {
   return (
     <Link
@@ -23,14 +25,25 @@ export function CompCard({ comp }: { comp: CompSummary }) {
 
       <div
         className="mt-2 flex gap-1"
-        aria-label={`캐리 챔피언 ${comp.carry_champion_ids.length}명`}
+        aria-label={`캐리 챔피언 ${comp.carry_champions.length}명`}
       >
-        {comp.carry_champion_ids.map((championId) => (
-          <span
-            key={championId}
-            className="h-3 w-3 rounded-full border-2 border-accent-carry bg-border-default"
-          />
-        ))}
+        {comp.carry_champions.map((champion) =>
+          champion.square_icon_url ? (
+            <Image
+              key={champion.champion_id}
+              src={champion.square_icon_url}
+              alt={champion.name_kr}
+              width={28}
+              height={28}
+              className="rounded-full border-2 border-accent-carry object-cover"
+            />
+          ) : (
+            <span
+              key={champion.champion_id}
+              className="h-3 w-3 rounded-full border-2 border-accent-carry bg-border-default"
+            />
+          ),
+        )}
       </div>
 
       <p className="mt-2 text-caption text-text-secondary">

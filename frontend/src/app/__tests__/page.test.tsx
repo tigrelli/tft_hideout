@@ -14,7 +14,9 @@ const mockTierlist: TierlistResponse = {
       play_rate: 0.18,
       win_rate: 0.19,
       playstyle_text: "리롤 성향 강함",
-      carry_champion_ids: [10],
+      carry_champions: [
+        { champion_id: 10, name_kr: "요네", square_icon_url: null },
+      ],
     },
   ],
 };
