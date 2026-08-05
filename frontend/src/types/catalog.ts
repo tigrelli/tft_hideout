@@ -46,6 +46,24 @@ export interface CompDetailResponse {
   augments: AugmentInComp[];
 }
 
+export interface ItemBuild {
+  id: number;
+  champion_id: number;
+  champion_name_kr: string;
+  champion_name_en: string;
+  item_combination: string[];
+  item_combination_names: string[];
+  play_rate: number;
+  avg_place: number;
+  win_rate: number;
+}
+
+export interface ItemBuildsResponse {
+  patch_version: string;
+  champion_id: number | null;
+  builds: ItemBuild[];
+}
+
 export interface CurrentPatchResponse {
   version: string;
   set_number: number;
