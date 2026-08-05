@@ -128,6 +128,7 @@ class AugmentSummary(BaseModel):
     description: str
     is_legend_related: bool
     win_rate: float | None
+    related_comp_ids: list[int]
 
 
 class AugmentsResponse(BaseModel):
@@ -389,6 +390,25 @@ def get_augments(
     stmt = stmt.order_by(Augment.id)
 
     rows = db.execute(stmt).scalars().all()
+
+    # 화면설계서 2.4 데이터 바인딩: augments, comp_augments. related-comps-link용
+    # 조합 id는 같은 패치의 comp_augments를 augment_id 기준으로 조회한다(comp_id는
+    # comps 테이블을 통해서만 patch_version을 알 수 있어 Comp와 조인, FE-04
+    # AugmentList와 동일하게 comp_augments가 비어있으면 자연히 빈 리스트).
+    augment_ids = [row.id for row in rows]
+    comp_ids_by_augment_id: dict[int, list[int]] = {}
+    if augment_ids:
+        comp_augment_rows = db.execute(
+            select(CompAugment.augment_id, CompAugment.comp_id)
+            .join(Comp, Comp.id == CompAugment.comp_id)
+            .where(
+                CompAugment.augment_id.in_(augment_ids),
+                Comp.patch_version == resolved_patch,
+            )
+        ).all()
+        for augment_id, comp_id in comp_augment_rows:
+            comp_ids_by_augment_id.setdefault(augment_id, []).append(comp_id)
+
     augments = [
         AugmentSummary(
             id=row.id,
@@ -401,6 +421,7 @@ def get_augments(
             # 강제 — DB에 값이 남아있더라도(현재는 항상 NULL이지만 방어적으로)
             # 응답에서 절대 노출하지 않는다.
             win_rate=None if row.is_legend_related else row.win_rate,
+            related_comp_ids=comp_ids_by_augment_id.get(row.id, []),
         )
         for row in rows
     ]

@@ -11,7 +11,7 @@ from sqlalchemy import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
-from db.models import Augment, Patch
+from db.models import Augment, Comp, CompAugment, Patch
 from db.session import get_db
 from main import app
 
@@ -202,3 +202,59 @@ def test_augments_without_patch_uses_current_patch(
     body = response.json()
     assert body["patch_version"] == "17.8"
     assert len(body["augments"]) == 1
+
+
+# ---- 화면설계서 2.4 related-comps-link: comp_augments 조인 -----------------------
+
+
+def test_augment_without_comp_augments_has_empty_related_comp_ids(
+    client: TestClient, migrated_engine: Engine
+) -> None:
+    _seed_patch(migrated_engine)
+    _seed_augment(migrated_engine)
+
+    response = client.get("/api/v1/catalog/augments?patch=17.8")
+
+    assert response.status_code == 200
+    assert response.json()["augments"][0]["related_comp_ids"] == []
+
+
+def test_augment_related_comp_ids_from_comp_augments(
+    client: TestClient, migrated_engine: Engine
+) -> None:
+    _seed_patch(migrated_engine)
+    _seed_augment(migrated_engine, riot_augment_id="TFT17_Augment_A")
+    _seed_augment(migrated_engine, riot_augment_id="TFT17_Augment_B")
+
+    with migrated_engine.begin() as conn:
+        augment_ids = [
+            row[0]
+            for row in conn.execute(
+                Augment.__table__.select().order_by(Augment.id)
+            ).fetchall()
+        ]
+        conn.execute(
+            insert(Comp).values(
+                patch_version="17.8",
+                riot_comp_id="TFT17_Comp_Mock",
+                name="모의 조합",
+                tier_rank="S",
+                avg_place=4.0,
+                play_rate=0.1,
+                win_rate=0.2,
+                playstyle_text="테스트",
+                updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        )
+        comp_id = conn.execute(Comp.__table__.select()).fetchone()[0]
+        conn.execute(
+            insert(CompAugment).values(
+                comp_id=comp_id, augment_id=augment_ids[0], priority=1
+            )
+        )
+
+    response = client.get("/api/v1/catalog/augments?patch=17.8")
+
+    augments_by_id = {a["id"]: a for a in response.json()["augments"]}
+    assert augments_by_id[augment_ids[0]]["related_comp_ids"] == [comp_id]
+    assert augments_by_id[augment_ids[1]]["related_comp_ids"] == []
