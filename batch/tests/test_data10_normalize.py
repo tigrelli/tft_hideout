@@ -19,6 +19,7 @@ from normalize import (
     build_playstyle_text,
     champion_item_build_rows,
     champion_rows,
+    clean_augment_description,
     comp_champion_rows,
     comp_rows,
     ensure_patch,
@@ -189,6 +190,77 @@ def test_augment_rows_always_sets_is_legend_related_false() -> None:
             "is_legend_related": False,
         }
     ]
+
+
+# ---- DATA-16: clean_augment_description() -----------------------------------
+# 실제 op.gg 응답에서 발견된 패턴을 그대로 재현한 합성 fixture(2026-08-05
+# 실호출로 형태 확인, docs/verification/FE-06-작업결과.md).
+
+
+def test_clean_augment_description_converts_br_to_newline() -> None:
+    raw = "효과 설명입니다.<br><br>추가 설명입니다."
+    assert clean_augment_description(raw) == "효과 설명입니다.\n\n추가 설명입니다."
+
+
+def test_clean_augment_description_replaces_unresolved_template_placeholder() -> None:
+    raw = "선택한 퀘스트: @TFTUnitProperty.item:TFT17_Augment_AurelionSolGodAugment@"
+    assert clean_augment_description(raw) == "선택한 퀘스트: (수치 정보 없음)"
+
+
+def test_clean_augment_description_handles_multiple_placeholders_independently() -> (
+    None
+):
+    raw = (
+        "(체력: @TFTUnitProperty.:TFT17_Augment_Timebreaker_Timestream_HP@, "
+        "공격 속도: @TFTUnitProperty.:TFT17_Augment_Timebreaker_Timestream_AS*100@%)"
+    )
+    assert (
+        clean_augment_description(raw)
+        == "(체력: (수치 정보 없음), 공격 속도: (수치 정보 없음)%)"
+    )
+
+
+def test_clean_augment_description_strips_rules_tags_and_collapses_blank_lines() -> (
+    None
+):
+    raw = (
+        "효과 설명입니다.<br><br><rules><br>"
+        "체력: @TFTUnitProperty.item:TFT17_ThreshGodAugment_Health@<br>"
+        "공격 속도: @TFTUnitProperty.item:TFT17_ThreshGodAugment_AttackSpeed@%<br>"
+        "</rules>"
+    )
+    cleaned = clean_augment_description(raw)
+
+    assert "<rules>" not in cleaned
+    assert "</rules>" not in cleaned
+    assert "<br>" not in cleaned
+    assert "@" not in cleaned
+    assert "\n\n\n" not in cleaned
+    assert cleaned == (
+        "효과 설명입니다.\n\n체력: (수치 정보 없음)\n공격 속도: (수치 정보 없음)%"
+    )
+
+
+def test_clean_augment_description_no_op_for_plain_text() -> None:
+    assert clean_augment_description("평범한 설명입니다.") == "평범한 설명입니다."
+
+
+def test_augment_rows_cleans_description_template_artifacts() -> None:
+    augments_ko = {
+        "headers": ["apiName", "desc", "name", "tier", "imageUrl"],
+        "rows": [
+            [
+                "TFT17_Augment_Fake",
+                "효과 설명입니다.<br>선택: @TFTUnitProperty.item:X@",
+                "가짜 증강체",
+                "gold",
+                "https://x.invalid",
+            ]
+        ],
+    }
+    rows = augment_rows(augments_ko, AUGMENTS_EN)
+
+    assert rows[0]["description"] == "효과 설명입니다.\n선택: (수치 정보 없음)"
 
 
 def test_build_playstyle_text_includes_carry_and_nonfalsy_badges() -> None:

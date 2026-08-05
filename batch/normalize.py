@@ -12,6 +12,7 @@ comps/comp_champions는 이번 TASK 범위에 포함하지만 comp_augments는 o
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -51,6 +52,25 @@ def _or_default(value: Any, default: Any) -> Any:
     오는 경우가 실제로 있어(2026-08-04 실호출로 확인) NOT NULL 컬럼에 넣기 전에
     이 헬퍼로 한 번 더 방어한다."""
     return default if value is None else value
+
+
+# DATA-16: op.gg 증강체 설명 원문에 <br> 리터럴 태그·<rules> 같은 HTML 유사 태그·
+# @TFTUnitProperty...@ 형태의 미해석 수치 템플릿이 그대로 남아있음(FE-06 실데이터
+# 검증 중 발견, docs/verification/FE-06-작업결과.md). op.gg가 실제 수치를 별도로
+# 안 줘서(DATA-05 스파이크 범위 밖) @...@ 템플릿을 진짜 값으로 치환할 수는 없어,
+# 대신 "(수치 정보 없음)"으로 바꿔 깨진 템플릿 문법 자체는 노출되지 않게 한다.
+_BR_TAG_PATTERN = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_HTML_TAG_PATTERN = re.compile(r"</?[a-zA-Z][^<>]*>")
+_TEMPLATE_PLACEHOLDER_PATTERN = re.compile(r"@[^@]*@")
+_EXCESS_NEWLINES_PATTERN = re.compile(r"\n{3,}")
+
+
+def clean_augment_description(raw: str) -> str:
+    text = _BR_TAG_PATTERN.sub("\n", raw)
+    text = _TEMPLATE_PLACEHOLDER_PATTERN.sub("(수치 정보 없음)", text)
+    text = _HTML_TAG_PATTERN.sub("", text)
+    text = _EXCESS_NEWLINES_PATTERN.sub("\n\n", text)
+    return text.strip()
 
 
 # ---- 순수 변환 함수(DB 미접근, 유닛 테스트 대상) ------------------------------
@@ -155,7 +175,9 @@ def augment_rows(
                 "name_kr": _or_default(r_ko.get("name"), api_name),
                 "name_en": _or_default(r_en.get("name"), api_name),
                 "tier": _or_default(r_ko.get("tier"), "unknown"),
-                "description": _or_default(r_ko.get("desc"), ""),
+                "description": clean_augment_description(
+                    _or_default(r_ko.get("desc"), "")
+                ),
                 "is_legend_related": False,
             }
         )

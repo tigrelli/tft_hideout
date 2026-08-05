@@ -69,4 +69,18 @@ describe("AugmentCard — Legend 승률 비노출 정책", () => {
       screen.queryByRole("link", { name: /관련 조합 보기/ }),
     ).not.toBeInTheDocument();
   });
+
+  // DATA-16: 배치가 <br>를 실제 개행(\n)으로 정리해서 내려주므로, 프론트는
+  // 그 개행을 whitespace-pre-line으로 그대로 렌더링만 하면 된다.
+  it("설명에 개행이 있으면 whitespace-pre-line으로 렌더링한다", () => {
+    render(
+      <AugmentCard
+        augment={{ ...baseAugment, description: "첫 줄\n\n둘째 줄" }}
+      />,
+    );
+    const description = screen.getByText(
+      (_, element) => element?.textContent === "첫 줄\n\n둘째 줄",
+    );
+    expect(description.className).toContain("whitespace-pre-line");
+  });
 });

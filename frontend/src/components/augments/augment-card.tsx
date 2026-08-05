@@ -8,6 +8,8 @@ import { AugmentTierBadge } from "@/components/augments/augment-tier-badge";
 // — 정책상 비표시일 뿐 에러 아님). 백엔드(API-05)가 이미 win_rate를 null로
 // 강제하지만, 프론트에서도 is_legend_related만 보고 문구를 결정해 숫자가 DOM에
 // 남을 가능성을 원천 차단한다(이중 방어).
+// whitespace-pre-line: DATA-16이 배치에서 <br>를 실제 개행(\n)으로 정리하므로
+// 여기서 그 개행을 그대로 렌더링한다.
 export function AugmentCard({ augment }: { augment: AugmentSummary }) {
   return (
     <div className="rounded-card border border-border-default bg-surface-card p-4">
@@ -16,7 +18,7 @@ export function AugmentCard({ augment }: { augment: AugmentSummary }) {
         <AugmentTierBadge tier={augment.tier} />
       </div>
 
-      <p className="mt-2 wrap-break-word text-body text-text-secondary">
+      <p className="mt-2 wrap-break-word whitespace-pre-line text-body text-text-secondary">
         {augment.description}
       </p>
 
