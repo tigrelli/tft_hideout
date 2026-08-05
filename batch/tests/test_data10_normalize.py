@@ -17,6 +17,7 @@ from db_session import models
 from normalize import (
     augment_rows,
     build_playstyle_text,
+    cdragon_asset_url,
     champion_item_build_rows,
     champion_rows,
     clean_augment_description,
@@ -42,8 +43,14 @@ CDRAGON_KO = {
             "number": 17,
             "mutator": "TFTSet17",
             "champions": [
-                {"apiName": "TFT17_FakeAkali", "name": "가짜 아칼리", "cost": 4},
+                {
+                    "apiName": "TFT17_FakeAkali",
+                    "name": "가짜 아칼리",
+                    "cost": 4,
+                    "squareIcon": "ASSETS/Characters/TFT17_FakeAkali/Icon.tex",
+                },
                 {"apiName": "TFT17_FakeOnlyKo", "name": "한국어만", "cost": 1},
+                {"apiName": "TFT17_FakeNoIcon", "name": "아이콘 없음", "cost": 2},
             ],
             "traits": [
                 {
@@ -61,7 +68,8 @@ CDRAGON_EN = {
             "number": 17,
             "mutator": "TFTSet17",
             "champions": [
-                {"apiName": "TFT17_FakeAkali", "name": "FakeAkali", "cost": 4}
+                {"apiName": "TFT17_FakeAkali", "name": "FakeAkali", "cost": 4},
+                {"apiName": "TFT17_FakeNoIcon", "name": "FakeNoIcon", "cost": 2},
             ],
             "traits": [
                 {"apiName": "TFT17_FakeTrait", "name": "FakeTrait", "effects": []}
@@ -128,21 +136,40 @@ FAKE_META_DECKS = {
 
 def test_champion_rows_matches_ko_and_en_by_api_name() -> None:
     rows = champion_rows(CDRAGON_KO, CDRAGON_EN, set_number=17)
+    akali = next(r for r in rows if r["riot_champion_id"] == "TFT17_FakeAkali")
 
-    assert rows == [
-        {
-            "riot_champion_id": "TFT17_FakeAkali",
-            "name_kr": "가짜 아칼리",
-            "name_en": "FakeAkali",
-            "cost": 4,
-        }
-    ]
+    assert akali == {
+        "riot_champion_id": "TFT17_FakeAkali",
+        "name_kr": "가짜 아칼리",
+        "name_en": "FakeAkali",
+        "cost": 4,
+        "square_icon_url": "https://raw.communitydragon.org/latest/game/assets/characters/tft17_fakeakali/icon.png",
+    }
 
 
 def test_champion_rows_skips_entries_missing_in_other_language() -> None:
     rows = champion_rows(CDRAGON_KO, CDRAGON_EN, set_number=17)
 
     assert not any(r["riot_champion_id"] == "TFT17_FakeOnlyKo" for r in rows)
+
+
+def test_champion_rows_square_icon_url_none_when_missing() -> None:
+    rows = champion_rows(CDRAGON_KO, CDRAGON_EN, set_number=17)
+    no_icon = next(r for r in rows if r["riot_champion_id"] == "TFT17_FakeNoIcon")
+
+    assert no_icon["square_icon_url"] is None
+
+
+# ---- FE-13: cdragon_asset_url() ----------------------------------------------
+
+
+def test_cdragon_asset_url_lowercases_path_and_converts_extension() -> None:
+    assert cdragon_asset_url(
+        "ASSETS/Characters/TFT17_Akali/Skins/Base/Images/TFT17_Akali_splash_tile_68.tex"
+    ) == (
+        "https://raw.communitydragon.org/latest/game/"
+        "assets/characters/tft17_akali/skins/base/images/tft17_akali_splash_tile_68.png"
+    )
 
 
 def test_champion_rows_unknown_set_returns_empty() -> None:

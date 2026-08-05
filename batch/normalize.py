@@ -54,6 +54,18 @@ def _or_default(value: Any, default: Any) -> Any:
     return default if value is None else value
 
 
+# FE-13: Community Dragon 응답의 아이콘 필드(squareIcon 등)는 게임 엔진 원본
+# 텍스처 경로(.tex, 대문자 포함)라 브라우저에서 바로 못 씀. 실제 이미지를 주는
+# raw.communitydragon.org 규칙(경로 전체 소문자 + 확장자 .png)으로 변환한다
+# (2026-08-05 실호출로 변환 규칙 확인, 예: "ASSETS/.../Foo.tex" ->
+# "https://raw.communitydragon.org/latest/game/assets/.../foo.png").
+_COMMUNITY_DRAGON_ASSET_BASE = "https://raw.communitydragon.org/latest/game/"
+
+
+def cdragon_asset_url(tex_path: str) -> str:
+    return _COMMUNITY_DRAGON_ASSET_BASE + tex_path.lower().replace(".tex", ".png")
+
+
 # DATA-16: op.gg 증강체 설명 원문에 <br> 리터럴 태그·<rules> 같은 HTML 유사 태그·
 # @TFTUnitProperty...@ 형태의 미해석 수치 템플릿이 그대로 남아있음(FE-06 실데이터
 # 검증 중 발견, docs/verification/FE-06-작업결과.md). op.gg가 실제 수치를 별도로
@@ -92,12 +104,16 @@ def champion_rows(
         c_en = en_by_id.get(api_name)
         if c_en is None:
             continue
+        square_icon = c_ko.get("squareIcon")
         rows.append(
             {
                 "riot_champion_id": api_name,
                 "name_kr": c_ko["name"],
                 "name_en": c_en["name"],
                 "cost": c_ko["cost"],
+                "square_icon_url": (
+                    cdragon_asset_url(square_icon) if square_icon else None
+                ),
             }
         )
     return rows
@@ -310,6 +326,7 @@ def upsert_champions(
             "name_kr": stmt.excluded.name_kr,
             "name_en": stmt.excluded.name_en,
             "cost": stmt.excluded.cost,
+            "square_icon_url": stmt.excluded.square_icon_url,
         },
     ).returning(models.Champion.id, models.Champion.riot_champion_id)
     return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
