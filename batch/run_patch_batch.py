@@ -21,11 +21,13 @@ from embeddings import HuggingFaceEmbeddingClient, collect_chunks, upsert_embedd
 from id_name_mapping import CommunityDragonClient, build_name_maps
 from normalize import (
     augment_rows,
+    champion_item_build_rows,
     champion_rows,
     comp_champion_rows,
     comp_rows,
     ensure_patch,
     item_rows,
+    replace_champion_item_builds,
     trait_rows,
     upsert_augments,
     upsert_champions,
@@ -55,6 +57,17 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
             state["augments_ko"] = opgg.list_augments(lang="ko_KR")
             state["augments_en"] = opgg.list_augments(lang="en_US")
             state["meta_decks"] = opgg.list_meta_decks()
+            # tft_get_champion_item_build은 챔피언 1명당 1회 호출해야 하는 도구라
+            # (DATA-05 스파이크) cdragon에서 이미 확인한 챔피언 목록을 순회한다.
+            champions = champion_rows(
+                state["cdragon_ko"], state["cdragon_en"], set_number
+            )
+            state["item_builds_by_champion"] = {
+                c["riot_champion_id"]: opgg.get_champion_item_build(
+                    c["riot_champion_id"]
+                )
+                for c in champions
+            }
 
     def step_normalize() -> None:
         patch_version = state["patch_version"]
@@ -76,6 +89,17 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
             patch_version,
             augment_rows(state["augments_ko"], state["augments_en"]),
         )
+        for riot_champion_id, build_response in state[
+            "item_builds_by_champion"
+        ].items():
+            db_champion_id = champion_ids.get(riot_champion_id)
+            if db_champion_id is not None:
+                replace_champion_item_builds(
+                    session,
+                    db_champion_id,
+                    patch_version,
+                    champion_item_build_rows(build_response),
+                )
         name_maps = build_name_maps(state["cdragon_ko"], set_number)
         comp_ids = upsert_comps(
             session, patch_version, comp_rows(state["meta_decks"], name_maps.champions)
