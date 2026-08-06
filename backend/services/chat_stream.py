@@ -4,6 +4,7 @@
 여기서 최종 배선된다."""
 
 import json
+import logging
 import time
 from collections.abc import Callable, Generator
 
@@ -34,6 +35,8 @@ FALLBACK_MESSAGE = (
 
 MAX_LLM_ATTEMPTS = 2
 
+logger = logging.getLogger(__name__)
+
 
 def stream_llm_answer(
     system_prompt: str,
@@ -42,7 +45,12 @@ def stream_llm_answer(
 ) -> Generator[str, None, None]:
     """Groq 스트리밍 호출(stream_fn). 토큰을 하나도 받기 전에 실패하면 1회 재시도하고,
     그래도 실패하거나 스트림 도중 실패하면 예외를 전파하지 않고 고정 폴백 메시지로
-    대체한다(WBS CHAT-05 테스트요구사항: 타임아웃 예외 처리 확인)."""
+    대체한다(WBS CHAT-05 테스트요구사항: 타임아웃 예외 처리 확인).
+
+    사용자에게는 FALLBACK_MESSAGE만 보이고 실제 예외는 삼켜지므로, 원인 파악이
+    가능하도록 경고 로그를 남긴다(운영 중 GROQ_API_KEY 오설정 등을 진단하다가
+    실제 예외가 어디에도 기록되지 않는 것을 확인해 2026-08-06 추가, CHAT-11
+    후속 조치)."""
     for attempt in range(MAX_LLM_ATTEMPTS):
         yielded_any = False
         try:
@@ -50,7 +58,15 @@ def stream_llm_answer(
                 yielded_any = True
                 yield token
             return
-        except Exception:  # noqa: BLE001 — Groq 무료 티어 타임아웃/오류 대비 폴백
+        except Exception as exc:  # noqa: BLE001 — Groq 무료 티어 타임아웃/오류 대비 폴백
+            logger.warning(
+                "Groq 스트리밍 실패(attempt=%d/%d, yielded_any=%s): %s: %s",
+                attempt + 1,
+                MAX_LLM_ATTEMPTS,
+                yielded_any,
+                type(exc).__name__,
+                exc,
+            )
             if not yielded_any and attempt < MAX_LLM_ATTEMPTS - 1:
                 continue
             yield FALLBACK_MESSAGE
