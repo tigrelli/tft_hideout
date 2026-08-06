@@ -100,6 +100,7 @@ class Item(Base):
     riot_item_id: Mapped[str] = mapped_column(String, nullable=False)
     components: Mapped[dict] = mapped_column(JSONB, nullable=False)
     stats: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    square_icon_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Augment(Base):
@@ -125,6 +126,7 @@ class Augment(Base):
     # API-05 마스킹 대상. op.gg/Riot 어디에도 증강체 단위 승률 데이터 소스가 없어
     # 배치는 채우지 않고 항상 NULL(DATA-05 스파이크, PM 승인 2026-08-04)
     win_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Comp(Base):
@@ -163,6 +165,12 @@ class CompChampion(Base):
     # DATA-02 마이그레이션 당시 dict로 잘못 가정했던 걸 FE-04 착수 중 실 데이터로
     # 발견해 바로잡음(2026-08-04) — JSONB 컬럼 자체는 스키마 변경 불필요.
     recommended_items: Mapped[list] = mapped_column(JSONB, nullable=False)
+    # FE-14: op.gg tft_list_meta_decks 응답 units[].cell.{x,y}(x:1~7, y:1~4,
+    # 4행x7열 실제 랭커 배치 좌표, 2026-08-06 실호출로 확인). 구 데이터(이
+    # 컬럼 추가 전 배치가 채운 행)는 NULL — 프론트가 NULL이면 기존 is_carry
+    # 휴리스틱 배치로 폴백한다.
+    cell_x: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cell_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class CompAugment(Base):

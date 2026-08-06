@@ -18,7 +18,14 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "playstyle_text",
         "updated_at",
     },
-    "comp_champions": {"comp_id", "champion_id", "is_carry", "recommended_items"},
+    "comp_champions": {
+        "comp_id",
+        "champion_id",
+        "is_carry",
+        "recommended_items",
+        "cell_x",
+        "cell_y",
+    },
     "comp_augments": {"comp_id", "augment_id", "priority"},
     "champion_item_builds": {
         "id",

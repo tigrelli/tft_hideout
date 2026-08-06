@@ -30,6 +30,7 @@ def seeded_champion_ids(migrated_engine: Engine) -> tuple[int, int]:
                 name_kr="요네",
                 name_en="Yone",
                 cost=4,
+                square_icon_url="https://raw.communitydragon.org/fake-yone.png",
             )
         )
         session.execute(
@@ -52,6 +53,7 @@ def seeded_champion_ids(migrated_engine: Engine) -> tuple[int, int]:
                         "item_type": "combined",
                         "components": [],
                         "stats": {},
+                        "square_icon_url": "https://raw.communitydragon.org/fake-bt.png",
                     },
                     {
                         "patch_version": "14.5",
@@ -61,6 +63,7 @@ def seeded_champion_ids(migrated_engine: Engine) -> tuple[int, int]:
                         "item_type": "combined",
                         "components": [],
                         "stats": {},
+                        "square_icon_url": None,
                     },
                     {
                         "patch_version": "14.5",
@@ -70,6 +73,7 @@ def seeded_champion_ids(migrated_engine: Engine) -> tuple[int, int]:
                         "item_type": "combined",
                         "components": [],
                         "stats": {},
+                        "square_icon_url": None,
                     },
                 ]
             )
@@ -151,7 +155,16 @@ def test_item_builds_include_champion_and_item_display_names(
     )
     assert build["champion_name_kr"] == "요네"
     assert build["champion_name_en"] == "Yone"
+    assert (
+        build["champion_square_icon_url"]
+        == "https://raw.communitydragon.org/fake-yone.png"
+    )
     assert build["item_combination_names"] == ["피바라기", "거인의 결의", "무한의 대검"]
+    assert build["item_combination_icons"] == [
+        "https://raw.communitydragon.org/fake-bt.png",
+        None,
+        None,
+    ]
 
 
 def test_item_builds_unknown_item_id_falls_back_to_raw_id(
@@ -165,6 +178,7 @@ def test_item_builds_unknown_item_id_falls_back_to_raw_id(
     build = next(b for b in body["builds"] if "lw" in b["item_combination"])
     # "lw"는 fixture에 등록하지 않아 items 테이블에 없음 -> 원본 id로 폴백
     assert build["item_combination_names"] == ["무한의 대검", "거인의 결의", "lw"]
+    assert build["item_combination_icons"] == [None, None, None]
 
 
 def test_item_builds_with_champion_filter_returns_only_that_champion(

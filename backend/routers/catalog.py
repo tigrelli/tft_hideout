@@ -81,8 +81,14 @@ class ChampionInComp(BaseModel):
     name_kr: str
     name_en: str
     is_carry: bool
+    square_icon_url: str | None
     recommended_items: list[str]  # 원본 riot_item_id(추후 아이콘 매칭용)
     recommended_item_names: list[str]  # 사람이 읽는 이름(items.name_kr)
+    recommended_item_icons: list[str | None]  # items.square_icon_url, 없으면 None
+    # FE-14: 실제 배치 좌표(x:1~7, y:1~4). 구 데이터는 둘 다 None — 프론트가
+    # is_carry 기반 휴리스틱 배치로 폴백한다.
+    cell_x: int | None
+    cell_y: int | None
 
 
 class AugmentInComp(BaseModel):
@@ -110,8 +116,10 @@ class ItemBuild(BaseModel):
     champion_id: int
     champion_name_kr: str
     champion_name_en: str
+    champion_square_icon_url: str | None
     item_combination: list[str]
     item_combination_names: list[str]
+    item_combination_icons: list[str | None]
     play_rate: float
     avg_place: float
     win_rate: float
@@ -123,6 +131,26 @@ class ItemBuildsResponse(BaseModel):
     builds: list[ItemBuild]
 
 
+class ItemComponent(BaseModel):
+    riot_item_id: str
+    name_kr: str
+    square_icon_url: str | None
+
+
+class ItemSummary(BaseModel):
+    riot_item_id: str
+    name_kr: str
+    square_icon_url: str | None
+    components: list[
+        ItemComponent
+    ]  # 조합 재료(호버/탭 시 레시피 표시용, PM 요청 2026-08-06)
+
+
+class ItemsResponse(BaseModel):
+    patch_version: str
+    items: list[ItemSummary]
+
+
 class AugmentSummary(BaseModel):
     id: int
     name_kr: str
@@ -132,6 +160,7 @@ class AugmentSummary(BaseModel):
     is_legend_related: bool
     win_rate: float | None
     related_comp_ids: list[int]
+    image_url: str | None
 
 
 class AugmentsResponse(BaseModel):
@@ -229,9 +258,9 @@ def get_comp_detail(
         for comp_champion, _ in champion_rows
         for item_id in comp_champion.recommended_items
     }
-    item_name_by_id = (
+    item_by_id = (
         {
-            row.riot_item_id: row.name_kr
+            row.riot_item_id: row
             for row in db.execute(
                 select(Item).where(
                     Item.patch_version == comp.patch_version,
@@ -249,11 +278,18 @@ def get_comp_detail(
             name_kr=champion.name_kr,
             name_en=champion.name_en,
             is_carry=comp_champion.is_carry,
+            square_icon_url=champion.square_icon_url,
             recommended_items=comp_champion.recommended_items,
             recommended_item_names=[
-                item_name_by_id.get(item_id, item_id)
+                item_by_id[item_id].name_kr if item_id in item_by_id else item_id
                 for item_id in comp_champion.recommended_items
             ],
+            recommended_item_icons=[
+                item_by_id[item_id].square_icon_url if item_id in item_by_id else None
+                for item_id in comp_champion.recommended_items
+            ],
+            cell_x=comp_champion.cell_x,
+            cell_y=comp_champion.cell_y,
         )
         for comp_champion, champion in champion_rows
     ]
@@ -314,6 +350,7 @@ def get_item_builds(
         ChampionItemBuild.win_rate,
         Champion.name_kr.label("champion_name_kr"),
         Champion.name_en.label("champion_name_en"),
+        Champion.square_icon_url.label("champion_square_icon_url"),
         build_rank.label("build_rank"),
     ).join(Champion, Champion.id == ChampionItemBuild.champion_id)
     ranked = ranked.where(ChampionItemBuild.patch_version == resolved_patch)
@@ -332,9 +369,9 @@ def get_item_builds(
     # 동일한 이유, 위 주석 참고) items 테이블에서 같은 patch_version 기준으로
     # 표시 이름을 조회한다.
     item_ids = {item_id for row in rows for item_id in row.item_combination}
-    item_name_by_id = (
+    item_by_id = (
         {
-            row.riot_item_id: row.name_kr
+            row.riot_item_id: row
             for row in db.execute(
                 select(Item).where(
                     Item.patch_version == resolved_patch,
@@ -352,9 +389,14 @@ def get_item_builds(
             champion_id=row.champion_id,
             champion_name_kr=row.champion_name_kr,
             champion_name_en=row.champion_name_en,
+            champion_square_icon_url=row.champion_square_icon_url,
             item_combination=row.item_combination,
             item_combination_names=[
-                item_name_by_id.get(item_id, item_id)
+                item_by_id[item_id].name_kr if item_id in item_by_id else item_id
+                for item_id in row.item_combination
+            ],
+            item_combination_icons=[
+                item_by_id[item_id].square_icon_url if item_id in item_by_id else None
                 for item_id in row.item_combination
             ],
             play_rate=row.play_rate,
@@ -367,6 +409,49 @@ def get_item_builds(
     return ItemBuildsResponse(
         patch_version=resolved_patch, champion_id=champion_id, builds=builds
     )
+
+
+@router.get("/items", response_model=ItemsResponse)
+def get_items(
+    db: Annotated[Session, Depends(get_db)],
+    patch: str | None = Query(default=None),
+) -> ItemsResponse:
+    """완성 아이템의 조합 재료(레시피) 조회용(호버/탭 팝오버, PM 요청 2026-08-06).
+    프론트엔드가 페이지당 1회만 호출해 재료 id -> 이름/아이콘 맵을 만들 수 있도록
+    같은 patch_version의 아이템 전체를 반환한다(챔피언별 필터 없음)."""
+    if patch is not None and not PATCH_PATTERN.match(patch):
+        raise _invalid_param_error(
+            "invalid_patch", "patch는 'MAJOR.MINOR' 형식이어야 합니다 (예: 14.5)"
+        )
+
+    resolved_patch = _resolve_patch(db, patch)
+
+    rows = (
+        db.execute(select(Item).where(Item.patch_version == resolved_patch))
+        .scalars()
+        .all()
+    )
+    item_by_id = {row.riot_item_id: row for row in rows}
+
+    items = [
+        ItemSummary(
+            riot_item_id=row.riot_item_id,
+            name_kr=row.name_kr,
+            square_icon_url=row.square_icon_url,
+            components=[
+                ItemComponent(
+                    riot_item_id=component_id,
+                    name_kr=item_by_id[component_id].name_kr,
+                    square_icon_url=item_by_id[component_id].square_icon_url,
+                )
+                for component_id in row.components
+                if component_id in item_by_id
+            ],
+        )
+        for row in rows
+    ]
+
+    return ItemsResponse(patch_version=resolved_patch, items=items)
 
 
 @router.get("/augments", response_model=AugmentsResponse)
@@ -424,6 +509,7 @@ def get_augments(
             # 응답에서 절대 노출하지 않는다.
             win_rate=None if row.is_legend_related else row.win_rate,
             related_comp_ids=comp_ids_by_augment_id.get(row.id, []),
+            image_url=row.image_url,
         )
         for row in rows
     ]
