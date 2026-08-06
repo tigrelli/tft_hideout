@@ -15,6 +15,7 @@ function makeChampion(overrides: Partial<ChampionInComp> = {}): ChampionInComp {
     recommended_item_icons: [],
     cell_x: null,
     cell_y: null,
+    star_level: null,
     ...overrides,
   };
 }
@@ -194,5 +195,53 @@ describe("HexBoard — 모든 챔피언에 cell_x/cell_y가 있으면 실좌표 
     const oddDisplayRow = links.find((el) => el.style.gridRowStart === "3");
     expect(oddDisplayRow?.style.transform).toBe("");
     expect(evenDisplayRow?.style.transform).toContain("translateX");
+  });
+});
+
+describe("HexBoard — 성급(★) 표시(FE-15)", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("3성은 별 3개를 레드(tier-op) 색상으로 표시한다", () => {
+    render(<HexBoard champions={[makeChampion({ star_level: 3 })]} />);
+    const stars = screen.getByRole("img", { name: "3성" });
+    expect(stars).toHaveTextContent("★★★");
+    expect(stars.className).toContain("text-tier-op");
+  });
+
+  it("2성은 별 2개를 골드(tier-s) 색상으로 표시한다", () => {
+    render(<HexBoard champions={[makeChampion({ star_level: 2 })]} />);
+    const stars = screen.getByRole("img", { name: "2성" });
+    expect(stars).toHaveTextContent("★★");
+    expect(stars.className).toContain("text-tier-s");
+  });
+
+  it("star_level이 없으면 별 표시를 생략한다", () => {
+    render(<HexBoard champions={[makeChampion({ star_level: null })]} />);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("실좌표 모드에서도 성급 별 표시가 함께 렌더링된다", () => {
+    render(
+      <HexBoard
+        champions={[
+          makeChampion({
+            champion_id: 1,
+            cell_x: 4,
+            cell_y: 1,
+            star_level: 3,
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "3성" })).toBeInTheDocument();
   });
 });

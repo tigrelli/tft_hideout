@@ -14,40 +14,106 @@ import { ItemIconRow } from "@/components/comp-detail/item-icon-row";
 // 챔피언(헥스 타일)을 클릭하면 해당 챔피언의 아이템 빌드 화면으로 이동한다
 // (PM 요청 2026-08-06). ItemIconRow의 재료 아이콘은 자체 stopPropagation으로
 // 이 링크 이동과 충돌하지 않는다.
+//
+// FE-15(2026-08-06): op.gg 응답 units[].tier(성급, 2 또는 3)를 챔피언 아이콘
+// 위 별 표시로 노출한다(StarRating, 두 배치 모드 공통).
 const HEX_CLIP =
   "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)";
 const GRID_COLUMNS = 7;
 const GRID_ROWS = 4;
-const CELL_WIDTH_PX = 96; // w-24
+const CELL_WIDTH_PX = 112; // w-28
 const CELL_GAP_PX = 12; // gap-3
 
+// 챔피언 이미지는 헥스 안쪽에 꽉 채우지 않고 여백을 두고 앉힌다 — 실제 TFT
+// 덱 한 칸(슬롯)처럼 보이도록(PM 요청 2026-08-06). 부모에 padding만 주면 안
+// 되는 이유: Next Image의 fill(및 아래 폴백 span)은 position:absolute +
+// inset:0인데, 절대배치 자식의 containing block은 조상의 "패딩 박스"라
+// padding 영역까지 포함해 inset:0이 그 전체를 채워버린다(패딩이 있어도
+// 자식이 패딩 위까지 덮어써 시각적 여백이 안 생기는 CSS 흔한 함정). 그래서
+// 이미지를 감싸는 별도 wrapper에 inset:0이 아닌 실제 여백값(inset-3)을 줘서
+// 강제로 안쪽에 앉힌다.
+//
+// 여백 배경 단색만으로는 안 됨: 흰색(bg-surface-card)은 밝은 챔피언 아트와,
+// 어두운색(bg-text-primary)은 어두운 챔피언 아트와 겹쳐서 그 챔피언에서만
+// 여백이 안 보이는 문제가 실브라우저 확인 중 반복 발견됐다(PM 확인
+// 2026-08-06, getBoundingClientRect로 레이아웃 자체는 항상 정확함을 확인 —
+// 순수 색상 대비 문제였고 GPU 페인트 버그가 아니었다). 모든 챔피언 아트
+// 색상에 항상 대비되는 단색은 없으므로, 이미지 가장자리에 채도 높은
+// 브랜드색(primary) ring을 얹어 배경 fill 색과 무관하게 경계선 자체가 항상
+// 보이도록 한다(PM 결정 2026-08-06).
 function HexIcon({ champion }: { champion: ChampionInComp }) {
   return (
     <div
       style={{ clipPath: HEX_CLIP }}
       className={
-        "h-20 w-24 shrink-0 p-1 " +
+        "h-24 w-28 shrink-0 p-1 " +
         (champion.is_carry ? "bg-accent-carry" : "bg-border-default")
       }
     >
       <div
         style={{ clipPath: HEX_CLIP }}
-        className="relative h-full w-full overflow-hidden bg-surface-card"
+        className="relative h-full w-full overflow-hidden bg-text-primary"
       >
         {champion.square_icon_url ? (
-          <Image
-            src={champion.square_icon_url}
-            alt={champion.name_kr}
-            fill
-            sizes="96px"
-            className="object-cover"
-          />
+          <div className="absolute inset-3 ring-2 ring-inset ring-primary">
+            <Image
+              src={champion.square_icon_url}
+              alt={champion.name_kr}
+              fill
+              sizes="112px"
+              className="object-cover"
+            />
+          </div>
         ) : (
-          <span className="absolute inset-0 flex items-center justify-center text-caption text-text-tertiary">
+          <span className="absolute inset-3 flex items-center justify-center text-caption text-on-brand">
             {champion.name_kr.slice(0, 2)}
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// FE-15: 챔피언 성급(2 또는 3, op.gg unit.tier) 표시. op.gg 원본 화면의 별
+// 색상 체계(초록/파랑/핑크/회색 등)는 근거 데이터가 없어 재현하지 않고,
+// PM 결정(2026-08-06)에 따라 3성=tier-op(레드)/2성=tier-s(골드) 2단계 고정
+// 색상만 적용한다(design-tokens.md 기존 티어 배지 색상 재사용).
+//
+// transform-gpu(자체 컴포지팅 레이어 강제)가 없으면 크로미움이 이 별 텍스트를
+// 아예 페인트하지 않는 버그를 실브라우저 검증 중 발견(2026-08-06) — 바로 아래
+// 형제 요소인 HexIcon이 clip-path 육각형이라 같은 스태킹 컨텍스트를 공유할 때만
+// 재현됨. DOM/computed style은 전부 정상(opacity:1, visible)인데도 실제 페인트가
+// 누락돼, 원인 파악 전에는 별이 절반만(짝수 grid-row, 이미 다른 이유로 transform이
+// 걸려있던 행) 보이는 것처럼 보였다.
+function StarRating({ starLevel }: { starLevel: number | null }) {
+  if (!starLevel) {
+    return null;
+  }
+  const colorClass = starLevel >= 3 ? "text-tier-op" : "text-tier-s";
+  return (
+    <div
+      role="img"
+      aria-label={`${starLevel}성`}
+      className={
+        "pointer-events-none absolute inset-x-0 -top-4 z-10 flex " +
+        "transform-gpu justify-center text-h2 leading-none drop-shadow " +
+        colorClass
+      }
+    >
+      {"★".repeat(starLevel)}
+    </div>
+  );
+}
+
+// 별은 그레이 라인(헥스 테두리) 밖 위쪽에 겹쳐서 표시한다(PM 요청
+// 2026-08-06) — 기존에는 세로로 쌓인 별도 줄이라 타일 위에 여백이 그만큼
+// 더 생겼는데, relative 컨테이너 안에서 절대 위치로 띄우면 타일이 차지하는
+// 공간은 그대로 유지하면서 별만 테두리 위로 살짝 겹쳐 보이게 할 수 있다.
+function HexIconWithStar({ champion }: { champion: ChampionInComp }) {
+  return (
+    <div className="relative">
+      <StarRating starLevel={champion.star_level} />
+      <HexIcon champion={champion} />
     </div>
   );
 }
@@ -57,9 +123,9 @@ function HeuristicHexTile({ champion }: { champion: ChampionInComp }) {
   return (
     <Link
       href={`/items/builds?champion_id=${champion.champion_id}`}
-      className="flex w-max min-w-24 shrink-0 flex-col items-center gap-1"
+      className="flex w-max min-w-28 shrink-0 flex-col items-center gap-1"
     >
-      <HexIcon champion={champion} />
+      <HexIconWithStar champion={champion} />
       <span className="whitespace-nowrap text-caption text-text-primary">
         {champion.name_kr}
       </span>
@@ -105,12 +171,20 @@ function HeuristicHexBoard({ champions }: { champions: ChampionInComp[] }) {
       <p className="mb-4 text-caption font-bold text-text-secondary">
         실제 사용할 수 있는 추천 배치가 아닌 휴리스틱으로 시각화되었습니다.
       </p>
-      <div className="flex flex-col gap-4">
-        <HexRow rowChampions={backline} offset={false} />
-        <HexRow
-          rowChampions={frontline}
-          offset={frontline.length <= backline.length}
-        />
+      {/* 휴리스틱 배치는 실좌표가 없어 챔피언 타일이 격자 칸에 정확히 맞물리진
+          않지만, 실좌표 모드와 같은 배경 격자를 뒤에 깔아 보드 위에 놓인
+          배치처럼 보이게 한다(PM 요청 2026-08-06). 두 레이어를 같은 grid
+          셀(1/1)에 겹쳐, 고정 크기인 배경 격자가 트랙 크기를 정하고 챔피언
+          타일은 그 안에서 가운데 정렬되게 한다. */}
+      <div className="grid">
+        <HexGridBackdrop className="col-start-1 row-start-1" />
+        <div className="col-start-1 row-start-1 z-10 flex flex-col items-center justify-center gap-4">
+          <HexRow rowChampions={backline} offset={false} />
+          <HexRow
+            rowChampions={frontline}
+            offset={frontline.length <= backline.length}
+          />
+        </div>
       </div>
     </>
   );
@@ -147,12 +221,42 @@ function EmptyHexCell({ x, y }: { x: number; y: number }) {
     <div
       aria-hidden="true"
       style={{ clipPath: HEX_CLIP, ...cellPlacementStyle(x, y) }}
-      className="h-20 w-24 shrink-0 self-start bg-border-default/50 p-px"
+      className="h-24 w-28 shrink-0 self-start bg-border-default/50 p-px"
     >
       <div
         style={{ clipPath: HEX_CLIP }}
         className="h-full w-full bg-surface-page"
       />
+    </div>
+  );
+}
+
+function buildBackgroundCells(): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  for (let y = 1; y <= GRID_ROWS; y++) {
+    for (let x = 1; x <= GRID_COLUMNS; x++) {
+      cells.push({ x, y });
+    }
+  }
+  return cells;
+}
+
+// 실좌표 모드(RealHexBoard)와 휴리스틱 모드(HeuristicHexBoard)가 함께 쓰는
+// 7x4 배경 격자. 자체 grid-template으로 고정 픽셀 크기를 가지므로, 부모가
+// 오버레이 grid일 때 트랙 크기를 이 크기로 결정짓는 용도로도 쓸 수 있다.
+function HexGridBackdrop({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={"pointer-events-none grid justify-center gap-3 " + className}
+      style={{
+        gridTemplateColumns: `repeat(${GRID_COLUMNS}, ${CELL_WIDTH_PX}px)`,
+        gridTemplateRows: `repeat(${GRID_ROWS}, auto)`,
+      }}
+    >
+      {buildBackgroundCells().map(({ x, y }) => (
+        <EmptyHexCell key={`${x}-${y}`} x={x} y={y} />
+      ))}
     </div>
   );
 }
@@ -163,13 +267,13 @@ function RealHexTile({ champion }: { champion: ChampionInComp }) {
   return (
     <Link
       href={`/items/builds?champion_id=${champion.champion_id}`}
-      className="flex w-24 flex-col items-center gap-1 self-start"
+      className="flex w-28 flex-col items-center gap-1 self-start"
       style={cellPlacementStyle(
         champion.cell_x as number,
         champion.cell_y as number,
       )}
     >
-      <HexIcon champion={champion} />
+      <HexIconWithStar champion={champion} />
       <span className="text-center text-caption text-text-primary">
         {champion.name_kr}
       </span>
@@ -184,13 +288,6 @@ function RealHexTile({ champion }: { champion: ChampionInComp }) {
 }
 
 function RealHexBoard({ champions }: { champions: ChampionInComp[] }) {
-  const backgroundCells = [];
-  for (let y = 1; y <= GRID_ROWS; y++) {
-    for (let x = 1; x <= GRID_COLUMNS; x++) {
-      backgroundCells.push({ x, y });
-    }
-  }
-
   return (
     <>
       <p className="mb-4 text-caption text-text-secondary">
@@ -203,7 +300,7 @@ function RealHexBoard({ champions }: { champions: ChampionInComp[] }) {
           gridTemplateRows: `repeat(${GRID_ROWS}, auto)`,
         }}
       >
-        {backgroundCells.map(({ x, y }) => (
+        {buildBackgroundCells().map(({ x, y }) => (
           <EmptyHexCell key={`${x}-${y}`} x={x} y={y} />
         ))}
         {champions.map((champion) => (
