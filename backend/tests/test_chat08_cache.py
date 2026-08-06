@@ -123,6 +123,33 @@ def test_first_turn_cache_miss_generates_and_stores(
     assert cached == "새로 생성된 답변"
 
 
+def test_groq_fallback_message_is_not_cached(seeded_patch_session: Session) -> None:
+    """캐시 키가 session_id가 아니라 질문 문장+패치 버전이라, 폴백 메시지를
+    캐시하면 그 문장을 묻는 모든 세션이 다음 패치까지 계속 폴백만 받게 된다
+    (CHAT-11 배포 검증 중 실제로 재현된 버그, 2026-08-06 수정)."""
+
+    def always_failing_stream_fn(system_prompt: str, user_message: str):
+        raise TimeoutError("mock Groq 완전 실패")
+        yield  # pragma: no cover - 제너레이터 형태 유지용
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "지금 메타 조합 추천해줘",
+            embed_fn=lambda text: [0.0],
+            classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [],
+            stream_fn=always_failing_stream_fn,
+        )
+    )
+
+    assert (
+        get_cached_answer(seeded_patch_session, "지금 메타 조합 추천해줘", "17.8")
+        is None
+    )
+
+
 # ---- WBS #2: 후속 턴은 캐시 미적용(hit이 있어도 무시하고 파이프라인 실행) -------
 
 

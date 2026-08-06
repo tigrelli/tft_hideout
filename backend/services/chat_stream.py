@@ -162,7 +162,11 @@ def generate_answer_stream(
         latency_ms=latency_ms,
     )
 
-    if is_first_turn:
+    # Groq가 완전히 실패해 FALLBACK_MESSAGE로 대체된 턴은 캐시하지 않는다
+    # (캐시 키가 session_id가 아니라 질문 문장+패치 버전이라, 캐시하면 그
+    # 문장을 묻는 모든 세션이 다음 패치까지 계속 폴백만 받게 됨 — CHAT-11
+    # 배포 검증 중 실제로 이 상태에 빠진 것을 발견해 2026-08-06 수정).
+    if is_first_turn and raw_answer != FALLBACK_MESSAGE:
         store_answer_in_cache(
             db, preprocessed.normalized_text, patch_version, final_answer
         )
