@@ -4,7 +4,7 @@
 여기서 최종 배선된다."""
 
 import json
-import logging
+import sys
 import time
 from collections.abc import Callable, Generator
 
@@ -35,8 +35,6 @@ FALLBACK_MESSAGE = (
 
 MAX_LLM_ATTEMPTS = 2
 
-logger = logging.getLogger(__name__)
-
 
 def stream_llm_answer(
     system_prompt: str,
@@ -48,9 +46,13 @@ def stream_llm_answer(
     대체한다(WBS CHAT-05 테스트요구사항: 타임아웃 예외 처리 확인).
 
     사용자에게는 FALLBACK_MESSAGE만 보이고 실제 예외는 삼켜지므로, 원인 파악이
-    가능하도록 경고 로그를 남긴다(운영 중 GROQ_API_KEY 오설정 등을 진단하다가
+    가능하도록 진단 메시지를 남긴다(운영 중 GROQ_API_KEY 오설정 등을 진단하다가
     실제 예외가 어디에도 기록되지 않는 것을 확인해 2026-08-06 추가, CHAT-11
-    후속 조치)."""
+    후속 조치). `logging` 모듈 대신 stderr에 직접 print하는 이유: 이 앱에
+    logging 설정이 전혀 없는 상태에서 warning 레벨 로그가 Render 로그에
+    나타나지 않는 것을 실제로 확인했다(uvicorn/일부 의존성이 root logger에
+    핸들러를 붙이면서 propagate를 막는 것으로 추정) — print는 그런 설정과
+    무관하게 항상 보인다."""
     for attempt in range(MAX_LLM_ATTEMPTS):
         yielded_any = False
         try:
@@ -59,13 +61,11 @@ def stream_llm_answer(
                 yield token
             return
         except Exception as exc:  # noqa: BLE001 — Groq 무료 티어 타임아웃/오류 대비 폴백
-            logger.warning(
-                "Groq 스트리밍 실패(attempt=%d/%d, yielded_any=%s): %s: %s",
-                attempt + 1,
-                MAX_LLM_ATTEMPTS,
-                yielded_any,
-                type(exc).__name__,
-                exc,
+            print(
+                f"GROQ_STREAM_ERROR attempt={attempt + 1}/{MAX_LLM_ATTEMPTS} "
+                f"yielded_any={yielded_any} type={type(exc).__name__} error={exc!r}",
+                file=sys.stderr,
+                flush=True,
             )
             if not yielded_any and attempt < MAX_LLM_ATTEMPTS - 1:
                 continue
