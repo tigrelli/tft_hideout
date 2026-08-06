@@ -43,4 +43,14 @@
 
 ## PM 확인 결과
 
-2026-08-06 PM 승인. 레이트리밋 검토 결론(모니터링 우선, 코드 변경 없음) 그대로 진행. 실제 브라우저/배포 백엔드 검증은 `main` 머지·Render 배포 후 스모크 체크로 진행하기로 합의(`docs/verification/smoke-tests.md` 또는 본 문서에 결과 추가 기록 예정).
+2026-08-06 PM 승인. 레이트리밋 검토 결론(모니터링 우선, 코드 변경 없음) 그대로 진행. 실제 브라우저/배포 백엔드 검증은 `main` 머지·Render 배포 후 스모크 체크로 진행하기로 합의.
+
+## 배포 후 스모크 체크 결과 (2026-08-06)
+
+`main` 머지(PR #12) 직후 실제 배포 백엔드에 메시지를 보내 확인하는 과정에서 CHAT-11과 무관한 **인프라·버그 3건**을 함께 발견·해결했다(아래는 요약, 상세 재현 과정은 `smoke-tests.md` 참고):
+
+1. **`HUGGINGFACE_API_KEY`/`GROQ_API_KEY` 누락**: Render `tft-hideout-backend` 서비스 환경변수에서 두 키가 빠져 있어(원인 불명, SET-16 Riot 키 만료와 유사한 성격) `embed_query`가 `KeyError`로 스트림을 즉시 끊거나 `stream_llm_answer`가 매번 폴백. PM이 두 값을 재등록·재배포해 해결.
+2. **`stream_llm_answer` 예외가 로그에 전혀 안 남는 문제**: `logging.warning()`으로 남긴 진단 로그가 Render 환경에서 출력되지 않는 것을 실제로 확인(원인 미상, uvicorn/의존성이 root logger 전파를 막는 것으로 추정) — `print(file=sys.stderr, flush=True)`로 교체해 앞으로도 같은 문제를 바로 진단할 수 있게 함(`fix/chat-groq-error-logging`, PR #13·#14).
+3. **CHAT-08 캐시 오염 버그(진짜 원인)**: `chat_answer_cache` 키가 `session_id`가 아니라 `(질문 문장, patch_version)`이라, 위 1번으로 인해 실패한 첫 응답(FALLBACK_MESSAGE)이 그대로 캐시에 저장돼 그 문장을 묻는 모든 세션이 계속 폴백만 받는 상태가 됐다. `raw_answer != FALLBACK_MESSAGE`일 때만 캐시하도록 가드 추가(`fix/chat08-cache-poisoning`, PR #15, pytest 신규 1건). 이미 오염된 캐시 1행("지금 1티어 조합 뭐야?" + 17.8)은 1회성 스크립트(레포 미커밋)로 내용 확인 후 삭제.
+
+**최종 확인**: 위 3건 배포 후, 최초 오염됐던 문장을 포함해 여러 질문으로 실제 Groq 스트리밍 답변·패치 버전 명시·CHAT-07 링크 렌더링·**CHAT-11 `event: followups` 동적 후속질문**(답변 맥락에 맞는 질문 2~3개)까지 전부 정상 동작 확인. 캐시 히트 시 후속질문이 생성되지 않는 것도 설계대로 확인(레이트리밋 절감).

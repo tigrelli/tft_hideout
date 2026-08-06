@@ -49,3 +49,11 @@ CLAUDE.md 10.2절 정책에 따라 이런 실제 배포/시크릿 확인은 CI�
 - GitHub Settings → Branches에서 `main`/`develop` 브랜치 보호 규칙(Require status checks: `backend-tests`, `frontend-tests`) 생성 시도 → **"Your protected branch rules for your branch won't be enforced on this private repository until you move to a GitHub Team or Enterprise organization account"** 경고, 규칙 목록에 "Not enforced"로 표시됨. 실제로 실패한 PR의 Merge 버튼(Confirm merge)이 비활성화되지 않고 그대로 활성 상태인 것도 확인 — **GitHub 무료 플랜(Private 저장소)은 브랜치 보호 규칙을 설정할 수는 있으나 실제 강제(enforce)하지 않는 제약**
 - PM 결정: 유료 전환(GitHub Pro, 월 $4) 없이 **소프트 게이트로 운영** — CI 실패 표시(빨간 X)는 PM이 머지 전 참고하는 신호로만 쓰고, 실제 머지 차단은 기존 워크플로우 규칙("PM 승인 후에만 커밋/머지")으로 대신함. 저장소가 향후 Public 전환(REL-05)되거나 GitHub Pro로 업그레이드되면 동일 규칙이 자동으로 강제되기 시작하니 별도 재작업 불필요
 - 더미 테스트 제거 커밋 push 후 동일 PR에서 `backend-tests`/`frontend-tests` 모두 통과(초록 체크)로 전환되는지 PM 확인 예정
+
+## 운영 인시던트 — Render 환경변수 누락 + CHAT-08 캐시 오염 (2026-08-06)
+
+CHAT-11(후속질문 동적 생성) 배포 후 스모크 체크 중 발견. 상세 진단 과정·근본 원인·수정 내역은 `docs/verification/CHAT-11-작업결과.md`의 "배포 후 스모크 체크 결과" 절 참고. 여기서는 인프라 사실만 요약:
+
+- `tft-hideout-backend`(Render) 환경변수에서 `HUGGINGFACE_API_KEY`·`GROQ_API_KEY`가 어느 시점엔가 빠져 있었다(원인 불명 — 수동 설정값이라 SET-09 등록 이후 재설정된 적 없이 계속 있어야 정상). PM이 두 값을 다시 등록·재배포해 해결.
+- 위 장애로 실패한 첫 응답(폴백 메시지)이 CHAT-08 캐시에 그대로 저장되는 별도 코드 버그가 있었음을 발견 → `fix/chat08-cache-poisoning`(PR #15)로 수정, 운영 DB에 이미 저장된 오염 캐시 1행은 1회성 스크립트(레포 미커밋, `chat_answer_cache.id=4`)로 내용 확인 후 삭제.
+- **후속 조치 필요**: `HUGGINGFACE_API_KEY`/`GROQ_API_KEY`가 왜 빠졌는지는 결국 확인 못 함. Render 대시보드에서 팀원 접근 권한/최근 변경 이력을 확인하거나, 향후 유사 증상(챗봇이 계속 폴백만 응답) 재발 시 이 문서를 참고해 (1) Render 환경변수 존재 여부 (2) `chat_answer_cache` 오염 여부 순으로 확인할 것.
