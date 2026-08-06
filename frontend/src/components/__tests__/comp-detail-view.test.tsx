@@ -30,6 +30,7 @@ const mockCompDetail: CompDetailResponse = {
       recommended_item_icons: [null],
       cell_x: null,
       cell_y: null,
+      star_level: null,
     },
     {
       champion_id: 20,
@@ -42,6 +43,7 @@ const mockCompDetail: CompDetailResponse = {
       recommended_item_icons: [],
       cell_x: null,
       cell_y: null,
+      star_level: null,
     },
   ],
   augments: [

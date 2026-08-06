@@ -33,6 +33,7 @@ export interface ChampionInComp {
   recommended_item_icons: (string | null)[];
   cell_x: number | null;
   cell_y: number | null;
+  star_level: number | null;
 }
 
 export interface AugmentInComp {

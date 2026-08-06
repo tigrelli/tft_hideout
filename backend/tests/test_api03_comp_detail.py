@@ -92,6 +92,7 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
                 recommended_items=["TFT_Item_InfinityEdge"],
                 cell_x=4,
                 cell_y=1,
+                star_level=3,
             )
         )
         session.execute(
@@ -161,6 +162,8 @@ def test_comp_detail_distinguishes_carry_from_sub_champion(
     ]
     assert carry["cell_x"] == 4
     assert carry["cell_y"] == 1
+    # 성급(FE-15): op.gg unit.tier(2 또는 3) 기반, 없으면 None
+    assert carry["star_level"] == 3
     assert sub["name_kr"] == "아리"
     assert sub["square_icon_url"] is None
     assert sub["recommended_items"] == []
@@ -170,6 +173,7 @@ def test_comp_detail_distinguishes_carry_from_sub_champion(
     # 프론트가 이 값을 보고 실좌표/휴리스틱 배치를 분기한다(FE-14).
     assert sub["cell_x"] is None
     assert sub["cell_y"] is None
+    assert sub["star_level"] is None
 
 
 def test_comp_detail_not_found_returns_404(client: TestClient) -> None:
@@ -236,3 +240,43 @@ def test_comp_detail_item_name_falls_back_to_raw_id_when_unresolvable(
     assert champion["recommended_items"] == ["TFT_Item_DoesNotExist"]
     assert champion["recommended_item_names"] == ["TFT_Item_DoesNotExist"]
     assert champion["recommended_item_icons"] == [None]
+
+
+def test_comp_detail_still_accessible_for_inactive_comp(
+    migrated_engine: Engine, client: TestClient
+) -> None:
+    """DATA-17: is_active=False(op.gg 상위 10위에서 빠져 소프트 삭제된 조합)여도
+    티어리스트에서만 숨기고 상세 페이지·직접 링크는 계속 조회 가능해야 한다
+    (comp_champions/comp_augments FK·PGA 매칭·챗봇 인용 보존 목적)."""
+    with Session(migrated_engine) as session:
+        session.execute(
+            insert(Patch).values(
+                version="14.5",
+                set_number=14,
+                released_at=datetime(2026, 1, 1, tzinfo=UTC),
+                is_current=True,
+                detected_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        )
+        session.execute(
+            insert(Comp).values(
+                patch_version="14.5",
+                riot_comp_id="fake-comp-dropped",
+                name="Dropped Comp",
+                tier_rank="B",
+                avg_place=4.5,
+                play_rate=0.02,
+                win_rate=0.10,
+                playstyle_text="테스트",
+                updated_at=datetime(2026, 1, 2, tzinfo=UTC),
+                is_active=False,
+            )
+        )
+        session.commit()
+        comp_id = session.execute(
+            select(Comp.id).where(Comp.riot_comp_id == "fake-comp-dropped")
+        ).scalar_one()
+
+    response = client.get(f"/api/v1/catalog/comps/{comp_id}")
+    assert response.status_code == 200
+    assert response.json()["name"] == "Dropped Comp"

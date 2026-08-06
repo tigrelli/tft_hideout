@@ -17,6 +17,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "win_rate",
         "playstyle_text",
         "updated_at",
+        "is_active",
     },
     "comp_champions": {
         "comp_id",
@@ -25,6 +26,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "recommended_items",
         "cell_x",
         "cell_y",
+        "star_level",
     },
     "comp_augments": {"comp_id", "augment_id", "priority"},
     "champion_item_builds": {

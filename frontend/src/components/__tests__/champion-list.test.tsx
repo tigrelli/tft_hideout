@@ -20,6 +20,7 @@ function makeChampion(overrides: Partial<ChampionInComp> = {}): ChampionInComp {
     recommended_item_icons: [],
     cell_x: null,
     cell_y: null,
+    star_level: null,
     ...overrides,
   };
 }

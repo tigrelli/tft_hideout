@@ -58,6 +58,20 @@ def seeded_engine(migrated_engine: Engine) -> Engine:
                 updated_at=datetime(2025, 12, 2, tzinfo=UTC),
             )
         )
+        session.execute(
+            insert(Comp).values(
+                patch_version="14.5",
+                riot_comp_id="fake-comp-dropped-from-top10",
+                name="Dropped Comp",
+                tier_rank="B",
+                avg_place=4.8,
+                play_rate=0.02,
+                win_rate=0.08,
+                playstyle_text="메타 이탈 조합",
+                updated_at=datetime(2026, 1, 2, tzinfo=UTC),
+                is_active=False,
+            )
+        )
         session.commit()
     return migrated_engine
 
@@ -92,6 +106,16 @@ def test_tierlist_defaults_to_current_patch_when_omitted(client: TestClient) -> 
     body = response.json()
     assert body["patch_version"] == "14.5"
     assert [c["name"] for c in body["comps"]] == ["Reroll Yone"]
+
+
+# ---- DATA-17: 메타 조합 소프트 삭제(is_active) --------------------------------
+
+
+def test_tierlist_excludes_inactive_comps(client: TestClient) -> None:
+    response = client.get("/api/v1/catalog/tierlist?patch=14.5")
+    assert response.status_code == 200
+    names = [c["name"] for c in response.json()["comps"]]
+    assert "Dropped Comp" not in names
 
 
 def test_tierlist_invalid_patch_format_returns_400(client: TestClient) -> None:
