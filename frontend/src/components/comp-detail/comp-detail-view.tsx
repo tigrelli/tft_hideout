@@ -8,10 +8,12 @@ import { AugmentList } from "@/components/comp-detail/augment-list";
 import { BackButton } from "@/components/comp-detail/back-button";
 import { ChampionList } from "@/components/comp-detail/champion-list";
 import { CompOverview } from "@/components/comp-detail/comp-overview";
-import { ItemBuildsCta } from "@/components/comp-detail/item-builds-cta";
+import { HexBoard } from "@/components/comp-detail/hex-board";
 
 // 화면설계서 2.2: single-column — header(back-btn) / overview / champion-list /
-// augment-list / cta / chat-widget-slot(전역, layout.tsx). URL은 쿼리스트링
+// augment-list / chat-widget-slot(전역, layout.tsx). cta(아이템 빌드 더보기)는
+// 챔피언 구성 아이템을 이미지로 바로 보여주게 되면서 제거(PM 결정 2026-08-06).
+// URL은 쿼리스트링
 // (/comps?id=)이라 useSearchParams로 id를 읽어 클라이언트에서 조회한다(PM 결정
 // 2026-08-04, FE-04 작업결과 참고).
 export function CompDetailView() {
@@ -61,15 +63,20 @@ export function CompDetailView() {
     );
   }
 
-  const carryChampion = comp.champions.find((c) => c.is_carry);
-
   return (
     <div>
       <BackButton patchVersion={comp.patch_version} />
       <CompOverview comp={comp} />
-      <ChampionList champions={comp.champions} />
+      <div className="md:hidden">
+        <ChampionList champions={comp.champions} />
+      </div>
+      <div className="hidden md:block">
+        <h2 className="text-h2 text-text-primary">챔피언 구성</h2>
+        <div className="mt-2">
+          <HexBoard champions={comp.champions} />
+        </div>
+      </div>
       <AugmentList augments={comp.augments} />
-      <ItemBuildsCta championId={carryChampion?.champion_id ?? null} />
     </div>
   );
 }
