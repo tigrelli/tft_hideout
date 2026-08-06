@@ -1,25 +1,18 @@
 "use client";
 
-// 화면설계서 2.7 SuggestedFollowupChips(visible/hidden). 백엔드가 대화 맥락별
-// 후속 질문을 생성해주지 않아(CHAT-01~09 어디에도 관련 응답 필드 없음), 의도
-// 4분류(glossary.md)를 대표하는 고정 예시 질문을 대화 시작 전에만 노출하는
-// 방식으로 구현했다 — PRD/화면설계서 미명시 항목에 대한 가정(PM 확인 필요,
-// 화면설계서 2.7의 다른 미확정 항목과 동일한 방식).
-const STARTER_QUESTIONS = [
-  "지금 메타에서 강한 조합 추천해줘",
-  "캐리 챔피언 아이템은 뭘 써야 해?",
-  "지금 좋은 증강체 추천해줘",
-  "이번 패치 전체적인 메타 알려줘",
-];
-
+// 화면설계서 2.7 SuggestedFollowupChips(visible/hidden). CHAT-11이 답변 직후
+// Groq로 생성한 맥락 기반 질문을 SSE `event: followups`로 보내주면 그 목록만
+// 그대로 렌더링한다(와이어프레임 예시 "(그 조합에 어울리는 증강체는?)"처럼
+// 항상 직전 봇 답변에 종속 — 질문 목록 자체를 고르는 로직은 여기 없음).
+// 목록이 비어 있으면 컴포넌트 자체가 hidden 상태로 아무것도 렌더링하지 않는다.
 export function ChatFollowupChips({
-  visible,
+  questions,
   onSelect,
 }: {
-  visible: boolean;
+  questions: string[];
   onSelect: (question: string) => void;
 }) {
-  if (!visible) {
+  if (questions.length === 0) {
     return null;
   }
 
@@ -28,7 +21,7 @@ export function ChatFollowupChips({
       aria-label="추천 질문"
       className="flex flex-wrap gap-2 border-t border-border-default p-3"
     >
-      {STARTER_QUESTIONS.map((question) => (
+      {questions.map((question) => (
         <button
           key={question}
           type="button"

@@ -3,6 +3,7 @@
 교체한다. CHAT-06(후처리)·CHAT-07(링크 삽입)·CHAT-08(응답 캐싱)·CHAT-09(Q&A 로깅)도
 여기서 최종 배선된다."""
 
+import json
 import time
 from collections.abc import Callable, Generator
 
@@ -65,11 +66,19 @@ def generate_answer_stream(
     classify_fn: Callable[[str], str],
     search_fn: Callable[[Session, str, str, list[float]], list[MetaDocumentEmbedding]],
     stream_fn: Callable[[str, str], Generator[str, None, None]],
+    result: dict[str, object] | None = None,
 ) -> Generator[str, None, None]:
     """전처리(CHAT-04)가 계산만 해두고 미뤄뒀던 is_off_topic/needs_clarification
     응답 분기를 여기서 실제로 연결하고, 정상 질문은 의도분류(CHAT-01) → 검색(CHAT-02)
     → 프롬프트 조립(CHAT-03) → Groq 스트리밍(CHAT-05) 순으로 배선한다. 각 단계
-    로직은 이미 해당 TASK에서 검증됐으므로 이 함수는 배선만 담당한다."""
+    로직은 이미 해당 TASK에서 검증됐으므로 이 함수는 배선만 담당한다.
+
+    result(선택, CHAT-11): 넘겨주면 실제로 새로 생성된 답변일 때만
+    result["answer_text"]에 최종 답변을 담아둔다(호출측이 스트림을 전부
+    소비한 뒤 후속 질문 생성에 사용). 명확화/범위밖/패치없음 조기 반환,
+    CHAT-08 캐시 히트(레이트리밋 절감이 목적이라 후속질문용 Groq 호출을
+    추가하지 않음), Groq 완전 실패로 인한 폴백 메시지에는 채우지 않는다
+    (LLM 부재 없이 호출측 기본값 [] 그대로 유지 = FollowupChips hidden)."""
     preprocessed = preprocess_input(raw_message)
     if preprocessed.needs_clarification:
         yield CLARIFICATION_MESSAGE
@@ -118,6 +127,12 @@ def generate_answer_stream(
     final_answer = insert_links(processed_answer, retrieved_docs)
     latency_ms = int((time.monotonic() - started_at) * 1000)
 
+    # CHAT-11: Groq가 완전히 실패해 FALLBACK_MESSAGE로 대체된 답변은 후속질문
+    # 생성 대상에서 제외(에러 문구를 이어서 되물을 이유가 없고, 실패한 턴에
+    # Groq 호출을 하나 더 추가하는 것도 낭비).
+    if result is not None and raw_answer != FALLBACK_MESSAGE:
+        result["answer_text"] = final_answer
+
     # CHAT-09: chat_logs 적재는 의도분류·검색·답변생성이 전부 이뤄진 정상 흐름에서만
     # 수행(명확화/범위밖/패치없음 조기 반환은 intent·patch_version이 없어 대상 아님).
     record_chat_log(
@@ -141,10 +156,21 @@ def generate_answer_stream(
 
 def build_sse_stream(
     token_stream: Generator[str, None, None],
+    *,
+    followups_fn: Callable[[], list[str]] | None = None,
 ) -> Generator[str, None, None]:
     """토큰 제너레이터를 SSE(text/event-stream) 포맷으로 감싼다.
     각 토큰은 `data:` 이벤트로, 스트림 종료는 별도 `done` 이벤트로 보내
-    클라이언트가 연결 종료 시점을 명확히 알 수 있게 한다."""
+    클라이언트가 연결 종료 시점을 명확히 알 수 있게 한다.
+
+    followups_fn(선택, CHAT-11): 토큰 스트림을 전부 소비한 뒤(=제너레이터
+    본문이 끝까지 실행돼 result 딕셔너리가 채워진 뒤) 호출해 후속 질문
+    목록을 얻는다. 목록이 비어 있으면 이벤트 자체를 보내지 않는다
+    (FollowupChips hidden, 기존 done-only 클라이언트와도 호환)."""
     for token in token_stream:
         yield f"data: {token}\n\n"
+    if followups_fn is not None:
+        questions = followups_fn()
+        if questions:
+            yield f"event: followups\ndata: {json.dumps(questions, ensure_ascii=False)}\n\n"
     yield "event: done\ndata: [DONE]\n\n"

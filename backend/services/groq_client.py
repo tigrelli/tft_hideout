@@ -12,9 +12,13 @@ def _get_client() -> Groq:
     return Groq(api_key=os.environ["GROQ_API_KEY"])
 
 
-def call_groq_chat(system_prompt: str, user_message: str) -> str:
+def call_groq_chat(
+    system_prompt: str, user_message: str, *, max_tokens: int = 20
+) -> str:
     """Groq sLLM 채팅 완성 호출. 실패 시 예외를 그대로 던지며,
-    폴백 처리는 호출측(예: intent_classification.classify_by_llm)에서 담당한다."""
+    폴백 처리는 호출측(예: intent_classification.classify_by_llm,
+    chat_followups.generate_followup_questions)에서 담당한다. 기본
+    max_tokens=20은 intent_classification의 한 단어 응답 기준(기존 동작 유지)."""
     response = _get_client().chat.completions.create(
         model=GROQ_MODEL,
         messages=[
@@ -22,7 +26,7 @@ def call_groq_chat(system_prompt: str, user_message: str) -> str:
             {"role": "user", "content": user_message},
         ],
         temperature=0,
-        max_tokens=20,
+        max_tokens=max_tokens,
     )
     return response.choices[0].message.content or ""
 

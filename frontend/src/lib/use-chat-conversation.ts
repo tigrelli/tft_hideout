@@ -7,6 +7,9 @@ export interface ChatMessage {
   id: string;
   role: "user" | "bot";
   text: string;
+  // CHAT-11: 이 봇 메시지에 딸린 맥락 기반 후속 질문(SSE `event: followups`).
+  // 아직 안 왔거나(스트리밍 중) 백엔드가 생성하지 않은 턴은 undefined.
+  followups?: string[];
 }
 
 const STREAM_ERROR_MESSAGE =
@@ -36,17 +39,30 @@ export function useChatConversation() {
 
       const tokens: string[] = [];
       try {
-        await streamChatMessage(sessionId, text, (token) => {
-          tokens.push(token);
-          const nextText = tokens.join(" ");
-          setMessages((prev) =>
-            prev.map((message) =>
-              message.id === botMessageId
-                ? { ...message, text: nextText }
-                : message,
-            ),
-          );
-        });
+        await streamChatMessage(
+          sessionId,
+          text,
+          (token) => {
+            tokens.push(token);
+            const nextText = tokens.join(" ");
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === botMessageId
+                  ? { ...message, text: nextText }
+                  : message,
+              ),
+            );
+          },
+          (questions) => {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === botMessageId
+                  ? { ...message, followups: questions }
+                  : message,
+              ),
+            );
+          },
+        );
       } catch {
         setMessages((prev) =>
           prev.map((message) =>

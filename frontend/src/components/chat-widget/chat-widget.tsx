@@ -15,6 +15,11 @@ export function ChatWidget() {
   const { sessionId, messages, isSending, sendMessage, resetConversation } =
     useChatConversation();
 
+  // CHAT-11: 후속질문칩은 항상 가장 최근 봇 답변에 종속(와이어프레임 예시와
+  // 동일). 다음 메시지를 보내는 중에는 낡은 칩이 잠깐 보이지 않게 숨긴다.
+  const lastBotMessage = [...messages].reverse().find((m) => m.role === "bot");
+  const followupQuestions = isSending ? [] : (lastBotMessage?.followups ?? []);
+
   return (
     <>
       {isExpanded && (
@@ -47,7 +52,7 @@ export function ChatWidget() {
 
           <ChatMessageList messages={messages} sessionId={sessionId} />
           <ChatFollowupChips
-            visible={messages.length === 0}
+            questions={followupQuestions}
             onSelect={(question) => void sendMessage(question)}
           />
           <ChatInput
