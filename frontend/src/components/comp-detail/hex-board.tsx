@@ -119,12 +119,20 @@ function HeuristicHexBoard({ champions }: { champions: ChampionInComp[] }) {
 // 실제 TFT 보드는 열이 한 칸씩 어긋난 육각형 타일링이다 — 짝수 행을 반 칸
 // (타일 폭+간격의 절반)만큼 오른쪽으로 밀어 벌집 모양을 만든다. 배경 빈 칸과
 // 챔피언 타일이 같은 규칙으로 어긋나야 격자선이 실제 타일 위치와 맞는다.
+//
+// FE-14 완료 시점엔 op.gg 응답에 상하 방향 메타데이터가 없어 y를 그대로
+// grid-row로 써서 방향을 임의로 정했었는데(진행현황.md 2026-08-06 FE-14 기록),
+// PM이 실제 화면에서 전열/후열이 뒤집혀 보인다고 확인해줘서(2026-08-06) y=1이
+// 화면 아래쪽(전열), y=4가 화면 위쪽(후열)이 되도록 행 순서를 반전한다. 벌집
+// 오프셋은 데이터상 y가 아니라 "화면에 그려지는 행"이 기준이어야 인접 행끼리
+// 어긋나는 육각형 타일링이 성립하므로, 반전된 displayRow로 홀짝을 다시 계산한다.
 function cellPlacementStyle(x: number, y: number): React.CSSProperties {
+  const displayRow = GRID_ROWS + 1 - y;
   return {
     gridColumnStart: x,
-    gridRowStart: y,
+    gridRowStart: displayRow,
     transform:
-      y % 2 === 0
+      displayRow % 2 === 0
         ? `translateX(${(CELL_WIDTH_PX + CELL_GAP_PX) / 2}px)`
         : undefined,
   };

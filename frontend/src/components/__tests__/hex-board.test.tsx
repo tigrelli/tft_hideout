@@ -150,7 +150,7 @@ describe("HexBoard — 모든 챔피언에 cell_x/cell_y가 있으면 실좌표 
     ).not.toBeInTheDocument();
   });
 
-  it("cell_x/cell_y 값 그대로 grid-column/grid-row에 배치한다", () => {
+  it("cell_x는 그대로, cell_y는 전열/후열이 화면과 맞도록 반전해 grid-row에 배치한다", () => {
     render(
       <HexBoard
         champions={[
@@ -165,10 +165,11 @@ describe("HexBoard — 모든 챔피언에 cell_x/cell_y가 있으면 실좌표 
     );
     const link = screen.getByRole("link");
     expect(link.style.gridColumnStart).toBe("4");
-    expect(link.style.gridRowStart).toBe("1");
+    // GRID_ROWS(4) + 1 - cell_y(1) = 4행(화면 맨 아래, 전열)
+    expect(link.style.gridRowStart).toBe("4");
   });
 
-  it("짝수 행(cell_y가 짝수)은 벌집 모양을 위해 오른쪽으로 반 칸 밀린다", () => {
+  it("화면상 짝수 번째 행(뒤집힌 grid-row가 짝수)은 벌집 모양을 위해 오른쪽으로 반 칸 밀린다", () => {
     render(
       <HexBoard
         champions={[
@@ -188,9 +189,10 @@ describe("HexBoard — 모든 챔피언에 cell_x/cell_y가 있으면 실좌표 
       />,
     );
     const links = screen.getAllByRole("link");
-    const oddRow = links.find((el) => el.style.gridRowStart === "1");
-    const evenRow = links.find((el) => el.style.gridRowStart === "2");
-    expect(oddRow?.style.transform).toBe("");
-    expect(evenRow?.style.transform).toContain("translateX");
+    // cell_y:1 -> grid-row 4행(짝수, 오프셋 O), cell_y:2 -> grid-row 3행(홀수, 오프셋 X)
+    const evenDisplayRow = links.find((el) => el.style.gridRowStart === "4");
+    const oddDisplayRow = links.find((el) => el.style.gridRowStart === "3");
+    expect(oddDisplayRow?.style.transform).toBe("");
+    expect(evenDisplayRow?.style.transform).toContain("translateX");
   });
 });
