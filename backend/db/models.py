@@ -151,6 +151,11 @@ class Comp(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # DATA-17: op.gg 상위 10위 목록에서 빠진(메타 회전) 조합의 소프트 삭제
+    # 플래그. false여도 행은 유지되어 comp_champions/comp_augments·
+    # match_analyses.matched_comp_id FK와 meta_document_embeddings 참조가
+    # 끊기지 않는다 — 티어리스트 API만 is_active=true로 필터링한다.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class CompChampion(Base):
@@ -171,6 +176,10 @@ class CompChampion(Base):
     # 휴리스틱 배치로 폴백한다.
     cell_x: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cell_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # FE-15: op.gg tft_list_meta_decks 응답 units[].tier(정수 2 또는 3, 성급,
+    # 2026-08-06 실호출로 확인). 구 데이터(이 컬럼 추가 전 배치가 채운 행)와
+    # 챔피언에 성급 정보가 없는 경우는 NULL — 프론트가 NULL이면 별 표시를 생략한다.
+    star_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class CompAugment(Base):

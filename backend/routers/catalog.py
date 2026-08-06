@@ -89,6 +89,9 @@ class ChampionInComp(BaseModel):
     # is_carry 기반 휴리스틱 배치로 폴백한다.
     cell_x: int | None
     cell_y: int | None
+    # FE-15: 성급(2 또는 3). 구 데이터·성급 정보 없는 챔피언은 None — 프론트가
+    # 별 표시를 생략한다.
+    star_level: int | None
 
 
 class AugmentInComp(BaseModel):
@@ -193,7 +196,12 @@ def get_tierlist(
     resolved_patch = _resolve_patch(db, patch)
 
     comps = (
-        db.execute(select(Comp).where(Comp.patch_version == resolved_patch))
+        db.execute(
+            select(Comp).where(
+                Comp.patch_version == resolved_patch,
+                Comp.is_active.is_(True),
+            )
+        )
         .scalars()
         .all()
     )
@@ -290,6 +298,7 @@ def get_comp_detail(
             ],
             cell_x=comp_champion.cell_x,
             cell_y=comp_champion.cell_y,
+            star_level=comp_champion.star_level,
         )
         for comp_champion, champion in champion_rows
     ]

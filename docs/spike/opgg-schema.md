@@ -81,6 +81,14 @@ API-02(GET /catalog/tierlist)가 `rank` 쿼리 파라미터(all/challenger/grand
 
 **PM 결정(2026-08-05)**: 랭크 필터 기능 자체를 제거한다(향후 재추가 여지 없음 — 기능이 아니라 데이터 소스의 근본적 한계). API-02의 `rank` 쿼리 파라미터·`comps.rank_tier` 컬럼·프론트 랭크 드롭다운(FE-03 FilterBar)을 전부 삭제. 상세: `docs/verification/API-02-작업결과.md`(2026-08-05 갱신), `docs/verification/API-02-rollback-작업결과.md`, 진행현황.md 2026-08-05 항목.
 
+## 8. `tft_list_meta_decks`는 정확히 10개 덱만 반환 — 페이지네이션 파라미터 없음 (2026-08-06 재확인)
+
+PM이 op.gg 웹사이트(20개 이상의 조합이 스크롤 노출됨, 스크린샷 확인)와 우리 티어리스트 페이지(10개 조합만 노출)를 비교해 문의. 파이프라인 전 구간(batch → backend → frontend)을 점검한 결과 이 저장소 코드에는 10개로 자르는 slice/`LIMIT`/`top_n`이 어디에도 없음을 확인(`batch/opgg_client.py:131-133`, `batch/normalize.py:241-262`, `backend/routers/catalog.py`의 `get_tierlist`(195-199행, `.limit()` 없음), `frontend/src/components/tierlist/comp-grid.tsx`(16-21행, `.slice()` 없음) 전부 응답을 그대로 통과시킴).
+
+`OpggMcpClient().list_meta_decks()`를 이 세션에서 직접 재호출해 확인한 결과 **op.gg MCP `tft_list_meta_decks` 자체가 정확히 10개 덱만 반환**(`metadata.gameStatCounts: 2,357,856`, `data` 길이 10). 위 7번 항목에서 이미 확인한 `inputSchema: {"type":"object","properties":{},"required":[]}`(파라미터 전혀 없음)이 그대로이므로, limit/page/cursor로 더 요청할 방법이 없다. 운영 DB(`comps` 테이블)도 patch 17.8 기준 정확히 10행만 존재해 매치.
+
+**결론**: op.gg 웹사이트가 보여주는 20개 이상의 조합은 이 MCP 도구가 아닌 op.gg 자체 내부 데이터 소스(웹사이트 전용 API)에서 온 것으로 추정 — MCP 공개 도구와 op.gg 웹사이트 간의 데이터 범위 차이이며, 이 저장소 코드로는 고칠 수 없는 **데이터 소스 자체의 한계**(7번 랭크 필터 제거 건과 동일한 성격의 제약). 대안이 필요하면 (a) Riot 공식 API(SET-16, PUUID 발급 대기 중)로 별도 랭커 표본을 직접 수집하는 방안, (b) op.gg MCP의 다른 도구나 향후 스키마 변경을 주기적으로 재확인하는 방안 정도이며, 둘 다 신규 TASK로 PM 승인 필요. 현재는 10개가 이 데이터 소스로 확보 가능한 최대치임을 PM에게 보고.
+
 ## 다음 세션을 위한 메모
 
 - DATA-08 구현 시 이 문서의 연결 방식(세션 핸드셰이크)과 도구별 응답 구조를 그대로 fixture 스키마 근거로 사용할 것. 값은 정책(CLAUDE.md 10.2)에 따라 합성 데이터로 치환.

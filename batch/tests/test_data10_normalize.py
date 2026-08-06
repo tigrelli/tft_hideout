@@ -25,6 +25,7 @@ from normalize import (
     comp_rows,
     ensure_patch,
     item_rows,
+    mark_stale_comps_inactive,
     replace_champion_item_builds,
     trait_rows,
     upsert_augments,
@@ -122,6 +123,7 @@ FAKE_DECK = {
             "isCore": True,
             "items": ["TFT_Item_FakeSword"],
             "cell": {"x": 4, "y": 1},
+            "tier": 3,
         },
         {"key": "TFT17_FakeUnknown", "isCore": False, "items": []},
     ],
@@ -357,6 +359,7 @@ def test_comp_champion_rows_extracts_units() -> None:
             "recommended_items": ["TFT_Item_FakeSword"],
             "cell_x": 4,
             "cell_y": 1,
+            "star_level": 3,
         },
         {
             "riot_champion_id": "TFT17_FakeUnknown",
@@ -364,6 +367,7 @@ def test_comp_champion_rows_extracts_units() -> None:
             "recommended_items": [],
             "cell_x": None,
             "cell_y": None,
+            "star_level": None,
         },
     ]
 
@@ -593,6 +597,81 @@ def test_upsert_comp_champions_skips_unmapped_champion(db_session: Session) -> N
     ).all()
     assert len(linked) == 1
     assert linked[0].champion_id == champion_ids["TFT17_Known"]
+
+
+def _comp_row(riot_comp_id: str) -> dict:
+    return {
+        "riot_comp_id": riot_comp_id,
+        "name": riot_comp_id,
+        "tier_rank": "S",
+        "avg_place": 3.0,
+        "play_rate": 0.1,
+        "win_rate": 0.2,
+        "playstyle_text": "설명",
+        "updated_at": datetime.now(UTC),
+    }
+
+
+def test_upsert_comps_defaults_new_rows_to_active(db_session: Session) -> None:
+    comp_ids = upsert_comps(db_session, "17.8", [_comp_row("comp-active")])
+    db_session.commit()
+
+    comp = db_session.get(models.Comp, comp_ids["comp-active"])
+    assert comp.is_active is True
+
+
+def test_mark_stale_comps_inactive_deactivates_comps_missing_from_batch(
+    db_session: Session,
+) -> None:
+    comp_ids = upsert_comps(
+        db_session, "17.8", [_comp_row("comp-still-top10"), _comp_row("comp-dropped")]
+    )
+    db_session.commit()
+
+    # 이번 배치 op.gg 응답엔 comp-still-top10만 있고 comp-dropped는 메타
+    # 회전으로 빠졌다고 가정.
+    updated = mark_stale_comps_inactive(db_session, "17.8", {"comp-still-top10"})
+    db_session.commit()
+
+    assert updated == 1
+    still_top10 = db_session.get(models.Comp, comp_ids["comp-still-top10"])
+    dropped = db_session.get(models.Comp, comp_ids["comp-dropped"])
+    assert still_top10.is_active is True
+    assert dropped.is_active is False
+
+
+def test_mark_stale_comps_inactive_ignores_other_patch_versions(
+    db_session: Session,
+) -> None:
+    comp_ids_17_8 = upsert_comps(db_session, "17.8", [_comp_row("comp-shared-id")])
+    comp_ids_17_9 = upsert_comps(db_session, "17.9", [_comp_row("comp-shared-id")])
+    db_session.commit()
+
+    # 17.9 배치를 도는 중이고, 이번 op.gg 응답엔 이 리스트가 없다고 가정해도
+    # 17.8 행은 건드리면 안 된다(정합성 원칙: 다른 패치 행은 절대 덮어쓰지 않음).
+    mark_stale_comps_inactive(db_session, "17.9", set())
+    db_session.commit()
+
+    comp_17_8 = db_session.get(models.Comp, comp_ids_17_8["comp-shared-id"])
+    comp_17_9 = db_session.get(models.Comp, comp_ids_17_9["comp-shared-id"])
+    assert comp_17_8.is_active is True
+    assert comp_17_9.is_active is False
+
+
+def test_upsert_comps_reactivates_previously_inactive_comp(
+    db_session: Session,
+) -> None:
+    comp_ids = upsert_comps(db_session, "17.8", [_comp_row("comp-returns")])
+    db_session.commit()
+    mark_stale_comps_inactive(db_session, "17.8", set())
+    db_session.commit()
+    assert db_session.get(models.Comp, comp_ids["comp-returns"]).is_active is False
+
+    # 다음 배치에서 메타가 다시 상위 10위 안으로 돌아왔다고 가정.
+    upsert_comps(db_session, "17.8", [_comp_row("comp-returns")])
+    db_session.commit()
+
+    assert db_session.get(models.Comp, comp_ids["comp-returns"]).is_active is True
 
 
 def test_replace_champion_item_builds_swaps_full_set(db_session: Session) -> None:

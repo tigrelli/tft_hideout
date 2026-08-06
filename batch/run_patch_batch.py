@@ -27,6 +27,7 @@ from normalize import (
     comp_rows,
     ensure_patch,
     item_rows,
+    mark_stale_comps_inactive,
     replace_champion_item_builds,
     trait_rows,
     upsert_augments,
@@ -106,6 +107,9 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
         comp_ids = upsert_comps(
             session, patch_version, comp_rows(state["meta_decks"], name_maps.champions)
         )
+        # DATA-17: 이번 배치 op.gg 응답에 없는(메타 회전으로 상위 10위 밖으로
+        # 밀려난) 기존 조합은 소프트 삭제한다.
+        mark_stale_comps_inactive(session, patch_version, set(comp_ids.keys()))
         session.flush()
         for deck in state["meta_decks"]["data"]:
             comp_id = comp_ids.get(deck["id"])

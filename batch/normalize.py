@@ -16,6 +16,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -278,7 +279,11 @@ def comp_champion_rows(deck: dict[str, Any]) -> list[dict[str, Any]]:
 
     cell_x/cell_y는 unit.cell.{x,y}(x:1~7, y:1~4, 4행x7열 실제 배치 좌표,
     FE-14, 2026-08-06 실호출로 확인) — cell 필드가 없으면(과거 응답 형태 대비
-    방어적으로) None으로 둬 프론트가 휴리스틱 배치로 폴백하게 한다."""
+    방어적으로) None으로 둬 프론트가 휴리스틱 배치로 폴백하게 한다.
+
+    star_level은 unit.tier(정수 2 또는 3, FE-15, 2026-08-06 실호출로 확인 —
+    cell과 같은 unit 객체 필드) — 없으면 None으로 둬 프론트가 별 표시를
+    생략하게 한다."""
     rows = []
     for unit in deck.get("units", []):
         cell = unit.get("cell") or {}
@@ -289,6 +294,7 @@ def comp_champion_rows(deck: dict[str, Any]) -> list[dict[str, Any]]:
                 "recommended_items": unit.get("items", []),
                 "cell_x": cell.get("x"),
                 "cell_y": cell.get("y"),
+                "star_level": unit.get("tier"),
             }
         )
     return rows
@@ -436,9 +442,38 @@ def upsert_comps(
             "win_rate": stmt.excluded.win_rate,
             "playstyle_text": stmt.excluded.playstyle_text,
             "updated_at": stmt.excluded.updated_at,
+            # DATA-17: 이전 배치에서 소프트 삭제(is_active=False)됐던 조합이
+            # 다시 op.gg 상위 10위에 나타나면 재활성화한다.
+            "is_active": True,
         },
     ).returning(models.Comp.id, models.Comp.riot_comp_id)
     return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
+
+
+def mark_stale_comps_inactive(
+    session: Session, patch_version: str, active_riot_comp_ids: set[str]
+) -> int:
+    """이번 배치 op.gg 응답에 없는 기존 조합을 소프트 삭제(is_active=False)한다.
+
+    op.gg tft_list_meta_decks는 페이지네이션 없이 항상 현재 상위 10개
+    조합만 반환해(DATA-17, docs/spike/opgg-schema.md 7·8번), 같은
+    patch_version 내에서도 메타가 회전하면 예전에 상위 10위였던 조합이
+    이번 응답엔 없을 수 있다. comp_champions/comp_augments·
+    match_analyses.matched_comp_id FK와 meta_document_embeddings 참조를
+    보존해야 해서 하드 삭제 대신 플래그만 끈다 — 호출부는 반드시
+    upsert_comps() 직후, active_riot_comp_ids에 이번 배치로 upsert한
+    riot_comp_id 전체를 넘겨 호출해야 한다."""
+    stmt = (
+        update(models.Comp)
+        .where(
+            models.Comp.patch_version == patch_version,
+            models.Comp.is_active.is_(True),
+            models.Comp.riot_comp_id.not_in(active_riot_comp_ids),
+        )
+        .values(is_active=False)
+    )
+    result = session.execute(stmt)
+    return result.rowcount
 
 
 def upsert_comp_champions(
@@ -462,6 +497,7 @@ def upsert_comp_champions(
                 "recommended_items": row["recommended_items"],
                 "cell_x": row.get("cell_x"),
                 "cell_y": row.get("cell_y"),
+                "star_level": row.get("star_level"),
             }
         )
     if not values:
@@ -474,6 +510,7 @@ def upsert_comp_champions(
             "recommended_items": stmt.excluded.recommended_items,
             "cell_x": stmt.excluded.cell_x,
             "cell_y": stmt.excluded.cell_y,
+            "star_level": stmt.excluded.star_level,
         },
     )
     session.execute(stmt)
