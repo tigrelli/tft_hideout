@@ -20,7 +20,8 @@
 | GET | `/api/v1/catalog/items/builds?champion_id=&patch=` | 아이템 빌드 조회 | API-04 |
 | GET | `/api/v1/catalog/augments?patch=&tier=` | 증강체 목록 조회(Legend 마스킹 포함) | API-05 |
 | GET | `/api/v1/catalog/patches/current` | 현재 패치 정보 조회 | API-06 |
-| POST | `/api/v1/chat/message` | 챗봇 메시지 전송(SSE 스트리밍) | API-09, CHAT-01~10 |
+| POST | `/api/v1/chat/message` | 챗봇 메시지 전송(SSE 스트리밍, `event: followups` 포함) | API-09, CHAT-01~11 |
+| POST | `/api/v1/chat/events/link-click` | 챗봇→웹사이트 링크 클릭 전환율 계측 | CHAT-07, FE-09 |
 | GET | `/api/v1/chat/session/{session_id}/history` | 대화 이력 조회(drill-down용, 최근 3턴) | API-10 |
 | POST | `/api/v1/analysis/link` | Riot ID → PUUID 변환(TTL 1시간 캐시) | API-11 |
 | POST | `/api/v1/analysis/recent` | 최근 매치 분석 요청 | API-12, PGA-01~10 |
@@ -31,6 +32,7 @@
 - 세션: `crypto.randomUUID()`로 클라이언트 발급, 이후 요청에 계속 실어 보냄
 - 스트리밍: 챗봇 답변은 SSE로 체감 지연 최소화
 - 클라이언트 저장: 사후 패인 분석 "최근 조회 계정 목록"은 브라우저 localStorage 배열(최대 5개, 화면설계서 2.5 가정)
+- **`POST /api/v1/chat/message` SSE 이벤트 순서(CHAT-11)**: `data: <token>\n\n`(답변 토큰, 반복) → `event: followups\ndata: <JSON string[]>\n\n`(선택, 후속 질문이 있을 때만 1회) → `event: done\ndata: [DONE]\n\n`(항상 마지막). `followups`는 캐시 히트(CHAT-08)·명확화/범위밖/패치없음 조기 응답·Groq 완전 실패 폴백 턴에는 오지 않는다(레이트리밋 절감, answer_text가 실제로 새로 생성됐을 때만 생성 시도) — 프론트는 이벤트 자체가 없을 수 있음을 전제로 파싱한다.
 
 ## 외부 연동 (배치/실시간)
 

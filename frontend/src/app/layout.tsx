@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { ChatWidgetToggle } from "@/components/chat-widget-toggle";
+import { ChatWidget } from "@/components/chat-widget/chat-widget";
 import { Gnb } from "@/components/gnb";
 import "./globals.css";
 
@@ -22,7 +22,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:px-10">
           {children}
         </main>
-        <ChatWidgetToggle />
+        <ChatWidget />
       </body>
     </html>
   );

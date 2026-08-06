@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from db.session import get_db
+from services.chat_followups import generate_followup_questions
 from services.chat_session import (
     RECENT_TURNS_LIMIT,
     get_session_history,
@@ -14,7 +15,7 @@ from services.chat_session import (
 )
 from services.chat_stream import build_sse_stream, generate_answer_stream
 from services.embedding_client import embed_query
-from services.groq_client import stream_groq_chat
+from services.groq_client import call_groq_chat, stream_groq_chat
 from services.hybrid_search import hybrid_search
 from services.intent_classification import classify_intent_for_query
 from services.kpi_events import record_link_click
@@ -75,8 +76,9 @@ def get_chat_history(
 def post_chat_message(
     body: ChatMessageRequest, db: Annotated[Session, Depends(get_db)]
 ) -> StreamingResponse:
-    """SSE 스트리밍 응답(API-09 배관 + CHAT-01~05 실제 배선)."""
+    """SSE 스트리밍 응답(API-09 배관 + CHAT-01~05 실제 배선 + CHAT-11 후속질문)."""
     validate_session_id(body.session_id)
+    stream_result: dict[str, object] = {}
     token_stream = generate_answer_stream(
         db,
         body.session_id,
@@ -85,9 +87,20 @@ def post_chat_message(
         classify_fn=classify_intent_for_query,
         search_fn=hybrid_search,
         stream_fn=stream_groq_chat,
+        result=stream_result,
     )
+
+    def followups_fn() -> list[str]:
+        # generate_answer_stream이 성공적으로 새 답변을 만든 턴에만
+        # answer_text가 채워진다(캐시 히트/조기 반환/Groq 완전 실패 제외).
+        answer_text = stream_result.get("answer_text")
+        if not isinstance(answer_text, str):
+            return []
+        return generate_followup_questions(answer_text, call_groq_chat)
+
     return StreamingResponse(
-        build_sse_stream(token_stream), media_type="text/event-stream"
+        build_sse_stream(token_stream, followups_fn=followups_fn),
+        media_type="text/event-stream",
     )
 
 
