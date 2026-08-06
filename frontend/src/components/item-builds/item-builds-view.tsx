@@ -8,10 +8,14 @@ import { BuildPriorityDetail } from "@/components/item-builds/build-priority-det
 import { ChampionSelect } from "@/components/item-builds/champion-select";
 import { ItemComboList } from "@/components/item-builds/item-combo-list";
 
-// 화면설계서 2.3: single-column — filter-bar(champion-select) / body(item-combo-list +
-// build-priority-detail) / chat-widget-slot(전역, layout.tsx). GET /catalog/items/builds
-// 응답이 챔피언별 상위 빌드까지 포함하므로(API-04, TOP_BUILDS_PER_CHAMPION cap) 1회
-// 조회 결과에서 챔피언 드롭다운 옵션과 빌드 리스트를 함께 파생한다.
+// 화면설계서 2.3: single-column — filter-bar(champion-select) / body(item-combo-list) /
+// chat-widget-slot(전역, layout.tsx). GET /catalog/items/builds 응답이 챔피언별
+// 상위 빌드까지 포함하므로(API-04, TOP_BUILDS_PER_CHAMPION cap) 1회 조회 결과에서
+// 챔피언 드롭다운 옵션과 빌드 리스트를 함께 파생한다.
+// build-priority-detail은 데스크톱/태블릿에서 item-combo-list와 완전히 동일한
+// 데이터를 중복 표시할 뿐이라(설계서 2.3에도 별도 필드 명세 없음, Props "-")
+// 상시 노출 패널은 제거했다(PM 확인 2026-08-06). 모바일 바텀시트(행 탭 시 선택
+// 확인 용도)로만 계속 사용한다.
 export function ItemBuildsView() {
   const router = useRouter();
   const pathname = usePathname();
@@ -39,15 +43,22 @@ export function ItemBuildsView() {
 
   const champions = useMemo(() => {
     if (!data) return [];
-    const nameByChampionId = new Map<number, string>();
+    const byChampionId = new Map<
+      number,
+      { championId: number; nameKr: string; squareIconUrl: string | null }
+    >();
     for (const build of data.builds) {
-      if (!nameByChampionId.has(build.champion_id)) {
-        nameByChampionId.set(build.champion_id, build.champion_name_kr);
+      if (!byChampionId.has(build.champion_id)) {
+        byChampionId.set(build.champion_id, {
+          championId: build.champion_id,
+          nameKr: build.champion_name_kr,
+          squareIconUrl: build.champion_square_icon_url,
+        });
       }
     }
-    return [...nameByChampionId.entries()]
-      .map(([championId, nameKr]) => ({ championId, nameKr }))
-      .sort((a, b) => a.nameKr.localeCompare(b.nameKr, "ko"));
+    return [...byChampionId.values()].sort((a, b) =>
+      a.nameKr.localeCompare(b.nameKr, "ko"),
+    );
   }, [data]);
 
   const filteredBuilds = useMemo(() => {
@@ -99,20 +110,13 @@ export function ItemBuildsView() {
         onChange={handleChampionChange}
       />
 
-      <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="lg:flex-1">
-          <ItemComboList
-            builds={filteredBuilds}
-            championSelected={selectedChampionId !== null}
-            selectedBuildId={effectiveBuildId}
-            onSelectBuild={handleSelectBuild}
-          />
-        </div>
-
-        {/* 태블릿: item-combo-list 아래로 상하 스택(기본 흐름) / 데스크톱(lg): 좌우 분할 */}
-        <div className="hidden md:block lg:flex-1">
-          <BuildPriorityDetail build={selectedBuild} />
-        </div>
+      <div className="mt-4">
+        <ItemComboList
+          builds={filteredBuilds}
+          championSelected={selectedChampionId !== null}
+          selectedBuildId={effectiveBuildId}
+          onSelectBuild={handleSelectBuild}
+        />
       </div>
 
       {/* 모바일: build-priority-detail이 사이드 패널 대신 리스트 행 탭 시 열리는
