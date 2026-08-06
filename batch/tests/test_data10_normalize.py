@@ -38,6 +38,13 @@ from normalize import (
 # ---- 합성 fixture(DATA-05/06 스파이크 구조 기반, 값은 전부 가짜) ----------------
 
 CDRAGON_KO = {
+    "items": [
+        {
+            "apiName": "TFT_Item_FakeSword",
+            "icon": "ASSETS/Maps/TFT/Icons/Items/Hexcore/TFT_Item_FakeSword.tex",
+        },
+        {"apiName": "TFT_Item_FakeNoIcon"},
+    ],
     "setData": [
         {
             "number": 17,
@@ -60,7 +67,7 @@ CDRAGON_KO = {
                 }
             ],
         }
-    ]
+    ],
 }
 CDRAGON_EN = {
     "setData": [
@@ -110,7 +117,12 @@ FAKE_DECK = {
     "id": "fake-origin-hash-1",
     "name": {"ko_KR": "가짜 조합", "en_US": "Fake Comp"},
     "units": [
-        {"key": "TFT17_FakeAkali", "isCore": True, "items": ["TFT_Item_FakeSword"]},
+        {
+            "key": "TFT17_FakeAkali",
+            "isCore": True,
+            "items": ["TFT_Item_FakeSword"],
+            "cell": {"x": 4, "y": 1},
+        },
         {"key": "TFT17_FakeUnknown", "isCore": False, "items": []},
     ],
     "badge": [
@@ -190,7 +202,7 @@ def test_trait_rows_builds_tier_thresholds_from_effects() -> None:
 
 
 def test_item_rows_maps_category_and_composition() -> None:
-    rows = item_rows(ITEMS_KO, ITEMS_EN)
+    rows = item_rows(ITEMS_KO, ITEMS_EN, CDRAGON_KO)
 
     assert rows == [
         {
@@ -200,8 +212,21 @@ def test_item_rows_maps_category_and_composition() -> None:
             "item_type": "core",
             "components": ["TFT_Item_FakeA", "TFT_Item_FakeB"],
             "stats": {"AP": 10},
+            "square_icon_url": (
+                "https://raw.communitydragon.org/latest/game/"
+                "assets/maps/tft/icons/items/hexcore/tft_item_fakesword.png"
+            ),
         }
     ]
+
+
+def test_item_rows_square_icon_url_none_when_missing() -> None:
+    items_ko = {"data": [{"apiName": "TFT_Item_FakeNoIcon", "name": "아이콘 없음"}]}
+    items_en = {"data": [{"apiName": "TFT_Item_FakeNoIcon", "name": "NoIcon"}]}
+
+    rows = item_rows(items_ko, items_en, CDRAGON_KO)
+
+    assert rows[0]["square_icon_url"] is None
 
 
 def test_augment_rows_always_sets_is_legend_related_false() -> None:
@@ -215,6 +240,7 @@ def test_augment_rows_always_sets_is_legend_related_false() -> None:
             "tier": "gold",
             "description": "가짜 설명",
             "is_legend_related": False,
+            "image_url": "https://x.invalid",
         }
     ]
 
@@ -329,11 +355,15 @@ def test_comp_champion_rows_extracts_units() -> None:
             "riot_champion_id": "TFT17_FakeAkali",
             "is_carry": True,
             "recommended_items": ["TFT_Item_FakeSword"],
+            "cell_x": 4,
+            "cell_y": 1,
         },
         {
             "riot_champion_id": "TFT17_FakeUnknown",
             "is_carry": False,
             "recommended_items": [],
+            "cell_x": None,
+            "cell_y": None,
         },
     ]
 

@@ -27,8 +27,12 @@ export interface ChampionInComp {
   name_kr: string;
   name_en: string;
   is_carry: boolean;
+  square_icon_url: string | null;
   recommended_items: string[];
   recommended_item_names: string[];
+  recommended_item_icons: (string | null)[];
+  cell_x: number | null;
+  cell_y: number | null;
 }
 
 export interface AugmentInComp {
@@ -56,8 +60,10 @@ export interface ItemBuild {
   champion_id: number;
   champion_name_kr: string;
   champion_name_en: string;
+  champion_square_icon_url: string | null;
   item_combination: string[];
   item_combination_names: string[];
+  item_combination_icons: (string | null)[];
   play_rate: number;
   avg_place: number;
   win_rate: number;
@@ -69,6 +75,24 @@ export interface ItemBuildsResponse {
   builds: ItemBuild[];
 }
 
+export interface ItemComponent {
+  riot_item_id: string;
+  name_kr: string;
+  square_icon_url: string | null;
+}
+
+export interface ItemSummary {
+  riot_item_id: string;
+  name_kr: string;
+  square_icon_url: string | null;
+  components: ItemComponent[];
+}
+
+export interface ItemsResponse {
+  patch_version: string;
+  items: ItemSummary[];
+}
+
 export interface AugmentSummary {
   id: number;
   name_kr: string;
@@ -78,23 +102,13 @@ export interface AugmentSummary {
   is_legend_related: boolean;
   win_rate: number | null;
   related_comp_ids: number[];
+  image_url: string | null;
 }
 
 export interface AugmentsResponse {
   patch_version: string;
   augments: AugmentSummary[];
 }
-
-// API-05 ALLOWED_AUGMENT_TIERS(backend/routers/catalog.py, DATA-05 스파이크로
-// 확정된 op.gg tft_list_augments 실제 tier 값 3종).
-export const AUGMENT_TIER_OPTIONS = [
-  { value: "all", label: "전체" },
-  { value: "gold", label: "골드" },
-  { value: "silver", label: "실버" },
-  { value: "prism", label: "프리즘" },
-] as const;
-
-export type AugmentTierValue = (typeof AUGMENT_TIER_OPTIONS)[number]["value"];
 
 export interface CurrentPatchResponse {
   version: string;

@@ -12,6 +12,7 @@ const baseAugment: AugmentSummary = {
   is_legend_related: false,
   win_rate: 0.48,
   related_comp_ids: [],
+  image_url: "https://x.invalid/augment.png",
 };
 
 // WBS FE-06 필수·정책 테스트: is_legend_related=true 카드는 "승률 표시 안함"
@@ -51,6 +52,23 @@ describe("AugmentCard — Legend 승률 비노출 정책", () => {
     expect(screen.getByText("일급 재사공")).toBeInTheDocument();
     expect(screen.getByText("골드")).toBeInTheDocument();
     expect(screen.getByText("재사공 확률 대폭 증가")).toBeInTheDocument();
+  });
+
+  it("image_url이 있으면 대표 이미지를 렌더링한다", () => {
+    render(<AugmentCard augment={baseAugment} />);
+    const image = screen.getByAltText("일급 재사공");
+    // next/image는 next.config.ts images.unoptimized(정적 export 설정)를
+    // 개발 빌드에서만 적용하므로 Vitest(jsdom)에서는 /_next/image?url=...
+    // 프록시 형태로 렌더링될 수 있다 — 원본 URL 포함 여부만 확인한다.
+    expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(
+      "augment.png",
+    );
+  });
+
+  it("image_url이 없으면 이름 첫 글자 폴백을 렌더링한다", () => {
+    render(<AugmentCard augment={{ ...baseAugment, image_url: null }} />);
+    expect(screen.queryByAltText("일급 재사공")).not.toBeInTheDocument();
+    expect(screen.getByText("일")).toBeInTheDocument();
   });
 
   it("related_comp_ids가 있으면 관련 조합 링크를 렌더링한다", () => {

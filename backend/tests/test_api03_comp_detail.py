@@ -30,6 +30,7 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
                 name_kr="요네",
                 name_en="Yone",
                 cost=4,
+                square_icon_url="https://raw.communitydragon.org/fake-yone.png",
             )
         )
         session.execute(
@@ -59,6 +60,7 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
                 name_en="Infinity Edge",
                 item_type="completed",
                 riot_item_id="TFT_Item_InfinityEdge",
+                square_icon_url="https://raw.communitydragon.org/fake-item.png",
                 components={},
                 stats={},
             )
@@ -88,6 +90,8 @@ def seeded_comp_id(migrated_engine: Engine) -> int:
                 champion_id=yone_id,
                 is_carry=True,
                 recommended_items=["TFT_Item_InfinityEdge"],
+                cell_x=4,
+                cell_y=1,
             )
         )
         session.execute(
@@ -149,11 +153,23 @@ def test_comp_detail_distinguishes_carry_from_sub_champion(
 
     assert carry["name_kr"] == "요네"
     assert carry["name_en"] == "Yone"
+    assert carry["square_icon_url"] == "https://raw.communitydragon.org/fake-yone.png"
     assert carry["recommended_items"] == ["TFT_Item_InfinityEdge"]
     assert carry["recommended_item_names"] == ["무한의 대검"]
+    assert carry["recommended_item_icons"] == [
+        "https://raw.communitydragon.org/fake-item.png"
+    ]
+    assert carry["cell_x"] == 4
+    assert carry["cell_y"] == 1
     assert sub["name_kr"] == "아리"
+    assert sub["square_icon_url"] is None
     assert sub["recommended_items"] == []
     assert sub["recommended_item_names"] == []
+    assert sub["recommended_item_icons"] == []
+    # cell_x/cell_y를 지정하지 않은 챔피언(구 데이터 시뮬레이션)은 None —
+    # 프론트가 이 값을 보고 실좌표/휴리스틱 배치를 분기한다(FE-14).
+    assert sub["cell_x"] is None
+    assert sub["cell_y"] is None
 
 
 def test_comp_detail_not_found_returns_404(client: TestClient) -> None:
@@ -219,3 +235,4 @@ def test_comp_detail_item_name_falls_back_to_raw_id_when_unresolvable(
     champion = response.json()["champions"][0]
     assert champion["recommended_items"] == ["TFT_Item_DoesNotExist"]
     assert champion["recommended_item_names"] == ["TFT_Item_DoesNotExist"]
+    assert champion["recommended_item_icons"] == [None]

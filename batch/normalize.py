@@ -146,16 +146,24 @@ def trait_rows(
 
 
 def item_rows(
-    items_ko: dict[str, Any], items_en: dict[str, Any]
+    items_ko: dict[str, Any],
+    items_en: dict[str, Any],
+    cdragon_ko: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """op.gg tft_list_item_combinations(ko/en 각 1회 호출 결과)에서 아이템 목록을 만든다."""
+    """op.gg tft_list_item_combinations(ko/en 각 1회 호출 결과)에서 아이템 목록을
+    만든다. 아이콘은 op.gg 응답에 없어(2026-08-06 확인) Community Dragon
+    cdragon/tft 응답의 최상위 items[](챔피언과 달리 세트별 setData가 아닌 전역
+    목록, apiName으로 매칭됨, 2026-08-06 실호출로 확인)의 icon 필드를
+    cdragon_asset_url로 변환해 채운다."""
     en_by_id = {i["apiName"]: i for i in items_en.get("data", [])}
+    icon_by_id = {i["apiName"]: i.get("icon") for i in cdragon_ko.get("items", [])}
     rows = []
     for i_ko in items_ko.get("data", []):
         api_name = i_ko["apiName"]
         i_en = en_by_id.get(api_name)
         if i_en is None:
             continue
+        icon = icon_by_id.get(api_name)
         rows.append(
             {
                 "riot_item_id": api_name,
@@ -164,6 +172,7 @@ def item_rows(
                 "item_type": _or_default(i_ko.get("category"), "unknown"),
                 "components": _or_default(i_ko.get("composition"), []),
                 "stats": _or_default(i_ko.get("effects"), {}),
+                "square_icon_url": cdragon_asset_url(icon) if icon else None,
             }
         )
     return rows
@@ -177,6 +186,9 @@ def augment_rows(
     is_legend_related은 항상 False로 고정한다 — DATA-07 결정: op.gg 응답에 라벨이
     없고 현재 Set 17엔 Legends 메커니즘 자체가 없다(목록 관리 인프라는 필요해질
     때 만들기로 함, YAGNI).
+
+    image_url은 챔피언/아이템과 달리 op.gg 응답(headers의 imageUrl 컬럼,
+    c-tft-api.op.gg CDN)에 바로 들어있어 Community Dragon 변환이 필요 없다.
     """
     en_by_id = {r["apiName"]: r for r in _augment_table_rows(augments_en)}
     rows = []
@@ -195,6 +207,7 @@ def augment_rows(
                     _or_default(r_ko.get("desc"), "")
                 ),
                 "is_legend_related": False,
+                "image_url": r_ko.get("imageUrl"),
             }
         )
     return rows
@@ -261,15 +274,24 @@ def _parse_updated_at(meta_decks: dict[str, Any]) -> datetime:
 
 def comp_champion_rows(deck: dict[str, Any]) -> list[dict[str, Any]]:
     """deck 하나(comp_rows에 넘긴 것과 동일 deck)에서 조합-챔피언 매핑을 만든다.
-    champion_id(riot ID) -> DB id 해석은 호출부(upsert_comp_champions)에서 한다."""
-    return [
-        {
-            "riot_champion_id": unit["key"],
-            "is_carry": bool(unit.get("isCore", False)),
-            "recommended_items": unit.get("items", []),
-        }
-        for unit in deck.get("units", [])
-    ]
+    champion_id(riot ID) -> DB id 해석은 호출부(upsert_comp_champions)에서 한다.
+
+    cell_x/cell_y는 unit.cell.{x,y}(x:1~7, y:1~4, 4행x7열 실제 배치 좌표,
+    FE-14, 2026-08-06 실호출로 확인) — cell 필드가 없으면(과거 응답 형태 대비
+    방어적으로) None으로 둬 프론트가 휴리스틱 배치로 폴백하게 한다."""
+    rows = []
+    for unit in deck.get("units", []):
+        cell = unit.get("cell") or {}
+        rows.append(
+            {
+                "riot_champion_id": unit["key"],
+                "is_carry": bool(unit.get("isCore", False)),
+                "recommended_items": unit.get("items", []),
+                "cell_x": cell.get("x"),
+                "cell_y": cell.get("y"),
+            }
+        )
+    return rows
 
 
 def champion_item_build_rows(build_response: dict[str, Any]) -> list[dict[str, Any]]:
@@ -367,6 +389,7 @@ def upsert_items(
             "item_type": stmt.excluded.item_type,
             "components": stmt.excluded.components,
             "stats": stmt.excluded.stats,
+            "square_icon_url": stmt.excluded.square_icon_url,
         },
     ).returning(models.Item.id, models.Item.riot_item_id)
     return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
@@ -388,6 +411,7 @@ def upsert_augments(
             "tier": stmt.excluded.tier,
             "description": stmt.excluded.description,
             "is_legend_related": stmt.excluded.is_legend_related,
+            "image_url": stmt.excluded.image_url,
         },
     ).returning(models.Augment.id, models.Augment.riot_augment_id)
     return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}
@@ -436,6 +460,8 @@ def upsert_comp_champions(
                 "champion_id": champion_id,
                 "is_carry": row["is_carry"],
                 "recommended_items": row["recommended_items"],
+                "cell_x": row.get("cell_x"),
+                "cell_y": row.get("cell_y"),
             }
         )
     if not values:
@@ -446,6 +472,8 @@ def upsert_comp_champions(
         set_={
             "is_carry": stmt.excluded.is_carry,
             "recommended_items": stmt.excluded.recommended_items,
+            "cell_x": stmt.excluded.cell_x,
+            "cell_y": stmt.excluded.cell_y,
         },
     )
     session.execute(stmt)

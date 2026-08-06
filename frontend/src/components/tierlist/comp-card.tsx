@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { CompSummary } from "@/types/catalog";
-import { TierBadge } from "@/components/tierlist/tier-badge";
+import { TIER_CLASS, TierBadge } from "@/components/tierlist/tier-badge";
 
 // 화면설계서 2.1: Card `comp-card`, 클릭 시 comp-detail로 이동. URL은 IA v1.2
 // 원문(`/comps/{comp_id}`) 대신 쿼리스트링(`/comps?id=`)을 쓴다 — 정적 export는
@@ -16,47 +16,63 @@ export function CompCard({ comp }: { comp: CompSummary }) {
   return (
     <Link
       href={`/comps?id=${comp.id}`}
-      className="block rounded-card border border-border-default bg-surface-card p-4 hover:border-primary"
+      className="flex overflow-hidden rounded-card border border-border-default bg-surface-card hover:border-primary"
     >
-      <div className="flex items-center justify-between">
-        <span className="text-h2 text-text-primary">{comp.name}</span>
-        <TierBadge tier={comp.tier_rank} />
+      <span
+        aria-hidden="true"
+        className={`w-1.5 shrink-0 ${TIER_CLASS[comp.tier_rank] ?? "bg-tier-c"}`}
+      />
+
+      <div className="min-w-0 flex-1 p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-h2 text-text-primary">{comp.name}</span>
+          <TierBadge tier={comp.tier_rank} />
+        </div>
+
+        <div
+          className="mt-2 flex gap-2"
+          aria-label={`캐리 챔피언 ${comp.carry_champions.length}명`}
+        >
+          {comp.carry_champions.map((champion) =>
+            champion.square_icon_url ? (
+              <Image
+                key={champion.champion_id}
+                src={champion.square_icon_url}
+                alt={champion.name_kr}
+                width={64}
+                height={64}
+                className="rounded-card border-2 border-accent-carry object-cover"
+              />
+            ) : (
+              <span
+                key={champion.champion_id}
+                className="h-16 w-16 rounded-card border-2 border-accent-carry bg-border-default"
+              />
+            ),
+          )}
+        </div>
+
+        <p className="mt-2 text-caption text-text-secondary">
+          <span className="font-bold">
+            평균등수 {comp.avg_place.toFixed(1)}
+          </span>{" "}
+          ·{" "}
+          <span className="font-bold">
+            픽률 {(comp.play_rate * 100).toFixed(0)}%
+          </span>{" "}
+          ·{" "}
+          <span className="font-bold">
+            승률{" "}
+            {comp.win_rate !== null
+              ? `${(comp.win_rate * 100).toFixed(0)}%`
+              : "정보 없음"}
+          </span>
+        </p>
+
+        <p className="mt-1 text-body text-text-secondary">
+          {comp.playstyle_text}
+        </p>
       </div>
-
-      <div
-        className="mt-2 flex gap-1"
-        aria-label={`캐리 챔피언 ${comp.carry_champions.length}명`}
-      >
-        {comp.carry_champions.map((champion) =>
-          champion.square_icon_url ? (
-            <Image
-              key={champion.champion_id}
-              src={champion.square_icon_url}
-              alt={champion.name_kr}
-              width={28}
-              height={28}
-              className="rounded-full border-2 border-accent-carry object-cover"
-            />
-          ) : (
-            <span
-              key={champion.champion_id}
-              className="h-3 w-3 rounded-full border-2 border-accent-carry bg-border-default"
-            />
-          ),
-        )}
-      </div>
-
-      <p className="mt-2 text-caption text-text-secondary">
-        평균등수 {comp.avg_place.toFixed(1)} · 픽률{" "}
-        {(comp.play_rate * 100).toFixed(0)}% · 승률{" "}
-        {comp.win_rate !== null
-          ? `${(comp.win_rate * 100).toFixed(0)}%`
-          : "정보 없음"}
-      </p>
-
-      <p className="mt-1 text-body text-text-secondary">
-        {comp.playstyle_text}
-      </p>
     </Link>
   );
 }

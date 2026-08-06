@@ -1,4 +1,5 @@
 import type { ItemBuild } from "@/types/catalog";
+import { ItemIconRow } from "@/components/comp-detail/item-icon-row";
 
 // 화면설계서 2.3: List `item-combo-list` {"fields":["item_combination","play_rate",
 // "avg_place","win_rate"]}. 행 탭 시 build-priority-detail이 갱신되고 모바일에서는
@@ -47,6 +48,12 @@ export function ItemComboList({
             <p className="text-body font-bold text-text-primary">
               {build.item_combination_names.join(" + ")}
             </p>
+            <ItemIconRow
+              names={build.item_combination_names}
+              icons={build.item_combination_icons}
+              itemIds={build.item_combination}
+              size={40}
+            />
             <p className="mt-1 text-caption text-text-secondary">
               픽률 {(build.play_rate * 100).toFixed(0)}% · 평균등수{" "}
               {build.avg_place.toFixed(1)} · 승률{" "}

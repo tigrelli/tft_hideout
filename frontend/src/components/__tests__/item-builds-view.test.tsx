@@ -22,8 +22,10 @@ const mockItemBuilds: ItemBuildsResponse = {
       champion_id: 10,
       champion_name_kr: "요네",
       champion_name_en: "Yone",
+      champion_square_icon_url: "https://x.invalid/yone.png",
       item_combination: ["ie", "gs", "lw"],
       item_combination_names: ["무한의 대검", "거인의 학살자", "최후의 속삭임"],
+      item_combination_icons: [],
       play_rate: 0.3,
       avg_place: 3.8,
       win_rate: 0.18,
@@ -33,8 +35,10 @@ const mockItemBuilds: ItemBuildsResponse = {
       champion_id: 10,
       champion_name_kr: "요네",
       champion_name_en: "Yone",
+      champion_square_icon_url: "https://x.invalid/yone.png",
       item_combination: ["bt", "gs", "ie"],
       item_combination_names: ["피바라기", "거인의 학살자", "무한의 대검"],
+      item_combination_icons: [],
       play_rate: 0.1,
       avg_place: 4.0,
       win_rate: 0.15,
@@ -44,8 +48,10 @@ const mockItemBuilds: ItemBuildsResponse = {
       champion_id: 20,
       champion_name_kr: "아리",
       champion_name_en: "Ahri",
+      champion_square_icon_url: null,
       item_combination: ["ludens"],
       item_combination_names: ["루덴의 메아리"],
+      item_combination_icons: [],
       play_rate: 0.2,
       avg_place: 4.2,
       win_rate: 0.11,
@@ -91,8 +97,9 @@ describe("ItemBuildsView — 챔피언 필터·아이템 빌드", () => {
 
     render(<ItemBuildsView />);
 
-    const select = await screen.findByLabelText("챔피언 선택");
-    await user.selectOptions(select, "10");
+    const input = await screen.findByLabelText("챔피언 선택");
+    await user.type(input, "요네");
+    await user.click(screen.getByRole("button", { name: "요네" }));
 
     expect(mockReplace).toHaveBeenCalledWith(
       "/items/builds?champion_id=10&patch=17.8",

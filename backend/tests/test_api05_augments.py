@@ -55,6 +55,7 @@ def _seed_augment(engine: Engine, **overrides) -> None:
         "description": "테스트용 설명",
         "is_legend_related": False,
         "win_rate": None,
+        "image_url": "https://x.invalid/augment.png",
     }
     values.update(overrides)
     with engine.begin() as conn:
@@ -205,6 +206,18 @@ def test_augments_without_patch_uses_current_patch(
 
 
 # ---- 화면설계서 2.4 related-comps-link: comp_augments 조인 -----------------------
+
+
+def test_augment_exposes_image_url(client: TestClient, migrated_engine: Engine) -> None:
+    _seed_patch(migrated_engine)
+    _seed_augment(migrated_engine)
+
+    response = client.get("/api/v1/catalog/augments?patch=17.8")
+
+    assert response.status_code == 200
+    assert (
+        response.json()["augments"][0]["image_url"] == "https://x.invalid/augment.png"
+    )
 
 
 def test_augment_without_comp_augments_has_empty_related_comp_ids(

@@ -82,7 +82,9 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
             trait_rows(state["cdragon_ko"], state["cdragon_en"], set_number),
         )
         upsert_items(
-            session, patch_version, item_rows(state["items_ko"], state["items_en"])
+            session,
+            patch_version,
+            item_rows(state["items_ko"], state["items_en"], state["cdragon_ko"]),
         )
         upsert_augments(
             session,

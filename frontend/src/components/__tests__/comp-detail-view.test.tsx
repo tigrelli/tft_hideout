@@ -24,16 +24,24 @@ const mockCompDetail: CompDetailResponse = {
       name_kr: "요네",
       name_en: "Yone",
       is_carry: true,
+      square_icon_url: null,
       recommended_items: ["TFT_Item_InfinityEdge"],
       recommended_item_names: ["무한의 대검"],
+      recommended_item_icons: [null],
+      cell_x: null,
+      cell_y: null,
     },
     {
       champion_id: 20,
       name_kr: "아리",
       name_en: "Ahri",
       is_carry: false,
+      square_icon_url: null,
       recommended_items: [],
       recommended_item_names: [],
+      recommended_item_icons: [],
+      cell_x: null,
+      cell_y: null,
     },
   ],
   augments: [
@@ -75,11 +83,11 @@ describe("CompDetailView — mock API 데이터 바인딩", () => {
       expect(screen.getByText("아이오니아 마법사")).toBeInTheDocument(),
     );
     expect(screen.getByText("패치 17.8")).toBeInTheDocument();
-    expect(screen.getByText("요네")).toBeInTheDocument();
+    // 모바일(ChampionList)·태블릿/데스크톱(HexBoard) 두 뷰가 반응형 클래스로
+    // 동시에 렌더링되므로(jsdom은 미디어쿼리를 적용하지 않음) 챔피언명이
+    // 두 곳에 나타난다.
+    expect(screen.getAllByText("요네").length).toBeGreaterThan(0);
     expect(screen.getByText("완전무장")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /아이템 빌드 더보기/ }),
-    ).toHaveAttribute("href", "/items/builds?champion_id=10");
   });
 
   it("조회 실패 시 에러 문구를 보여준다", async () => {

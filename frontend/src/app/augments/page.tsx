@@ -2,22 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { fetchJson } from "@/lib/api-client";
-import type { AugmentsResponse, AugmentTierValue } from "@/types/catalog";
+import type { AugmentsResponse } from "@/types/catalog";
 import { AugmentGrid } from "@/components/augments/augment-grid";
-import { TierFilterBar } from "@/components/augments/tier-filter-bar";
 
-// 화면설계서 2.4: single-column — filter-bar(tier) / body(augment-card 그리드) /
-// chat-widget-slot(전역, layout.tsx). 정적 export(FE-01) + 클라이언트 사이드
-// fetch(CSR, FE-03 결정과 동일 패턴).
+// 화면설계서 2.4: single-column — body(augment-card 그리드) / chat-widget-slot
+// (전역, layout.tsx). 정적 export(FE-01) + 클라이언트 사이드 fetch(CSR, FE-03
+// 결정과 동일 패턴). 티어 선택 필터는 PM 요청으로 제거(2026-08-06) — 항상 전체
+// 티어를 보여준다(백엔드 GET /catalog/augments의 tier 쿼리 파라미터 자체는
+// 남겨둔다, 다른 곳에서 재사용 가능).
 export default function AugmentsPage() {
-  const [tier, setTier] = useState<AugmentTierValue>("all");
   const [data, setData] = useState<AugmentsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const query = tier === "all" ? "" : `?tier=${tier}`;
-    fetchJson<AugmentsResponse>(`/api/v1/catalog/augments${query}`)
+    fetchJson<AugmentsResponse>("/api/v1/catalog/augments")
       .then((result) => {
         if (cancelled) return;
         setData(result);
@@ -30,12 +29,10 @@ export default function AugmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [tier]);
+  }, []);
 
   return (
     <div>
-      <TierFilterBar tier={tier} onTierChange={setTier} />
-
       {error && <p className="text-body text-text-secondary">{error}</p>}
       {!error && !data && (
         <p className="text-body text-text-secondary">불러오는 중...</p>
