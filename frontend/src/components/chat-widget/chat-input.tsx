@@ -28,7 +28,7 @@ export function ChatInput({
       <input
         type="text"
         aria-label="챗봇 메시지 입력"
-        placeholder="무엇이든 물어보세요"
+        placeholder="TFT에 관한 모든 질문, AI에게 물어보세요"
         value={value}
         disabled={isSending}
         onChange={(event) => setValue(event.target.value)}
