@@ -19,6 +19,23 @@ function mockSseResponse(tokens: string[]): Response {
   return new Response(body, { status: 200 });
 }
 
+// 첫 토큰 전송을 delayMs만큼 늦춰 "응답 대기 중" 상태를 재현하는 mock 스트림
+// (Render 콜드스타트·Groq 지연 재현 목적).
+function mockSseResponseDelayed(tokens: string[], delayMs: number): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      for (const token of tokens) {
+        controller.enqueue(encoder.encode(`data: ${token}\n\n`));
+      }
+      controller.enqueue(encoder.encode("event: done\ndata: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200 });
+}
+
 describe("ChatWidget — FE-09", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -92,6 +109,30 @@ describe("ChatWidget — FE-09", () => {
       expect.stringContaining("/api/v1/chat/message"),
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  // 응답이 느릴 때(Render 콜드스타트 등) 빈 말풍선만 떠 있어 멈춘 것처럼 보이던
+  // 문제 — PM 요청으로 첫 토큰 전까지 타이핑 인디케이터를 추가.
+  it("첫 토큰이 오기 전까지 타이핑 인디케이터가 보이고, 토큰이 오면 사라진다", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(mockSseResponseDelayed(["안녕하세요."], 50));
+
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+    await user.click(screen.getByRole("button", { name: "챗봇 열기" }));
+
+    const input = screen.getByRole("textbox", { name: "챗봇 메시지 입력" });
+    await user.type(input, "안녕");
+    await user.click(screen.getByRole("button", { name: "메시지 전송" }));
+
+    expect(
+      await screen.findByRole("status", { name: "답변 생성 중" }),
+    ).toBeInTheDocument();
+
+    await screen.findByText("안녕하세요.");
+    expect(
+      screen.queryByRole("status", { name: "답변 생성 중" }),
+    ).not.toBeInTheDocument();
   });
 
   it("답변에 포함된 [이름](url) 링크를 클릭 가능한 상세 페이지 링크로 렌더링한다", async () => {

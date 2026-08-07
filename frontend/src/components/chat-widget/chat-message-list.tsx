@@ -42,6 +42,28 @@ function renderAnswerText(text: string, sessionId: string): ReactNode[] {
   return parts;
 }
 
+// 첫 토큰이 오기 전(Render 콜드스타트·Groq 지연 등으로 느릴 수 있음, policies.md
+// 9번)까지 빈 봇 말풍선만 떠 있어 응답이 멈춘 것처럼 보이던 문제 — 메신저에서
+// 흔한 타이핑 점 3개 애니메이션으로 "생성 중"임을 표시한다.
+function ChatTypingIndicator() {
+  return (
+    <div
+      role="status"
+      aria-label="답변 생성 중"
+      className="flex gap-1 px-1 py-1"
+    >
+      {[0, 150, 300].map((delayMs) => (
+        <span
+          key={delayMs}
+          aria-hidden="true"
+          className="h-2 w-2 animate-bounce rounded-full bg-text-tertiary"
+          style={{ animationDelay: `${delayMs}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function ChatMessageList({
   messages,
   sessionId,
@@ -69,9 +91,13 @@ export function ChatMessageList({
               : "mr-auto max-w-[85%] rounded-bubble border border-border-default bg-surface-card px-3 py-2 text-body text-text-primary"
           }
         >
-          {message.role === "bot"
-            ? renderAnswerText(message.text, sessionId)
-            : message.text}
+          {message.role === "bot" && message.text === "" ? (
+            <ChatTypingIndicator />
+          ) : message.role === "bot" ? (
+            renderAnswerText(message.text, sessionId)
+          ) : (
+            message.text
+          )}
         </div>
       ))}
     </div>
