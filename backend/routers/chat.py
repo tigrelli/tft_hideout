@@ -91,8 +91,9 @@ def post_chat_message(
     )
 
     def followups_fn() -> list[str]:
-        # generate_answer_stream이 성공적으로 새 답변을 만든 턴에만
-        # answer_text가 채워진다(캐시 히트/조기 반환/Groq 완전 실패 제외).
+        # generate_answer_stream이 사용자에게 보여줄 실제 답변을 만든 턴에만
+        # answer_text가 채워진다(캐시 히트 포함, 명확화/범위밖/패치없음
+        # 조기 반환·Groq 완전 실패는 제외 — chat_stream.py docstring 참고).
         answer_text = stream_result.get("answer_text")
         if not isinstance(answer_text, str):
             return []

@@ -183,7 +183,7 @@ def test_result_stays_empty_on_clarification_short_circuit(
     assert result == {}
 
 
-def test_result_stays_empty_on_cache_hit(seeded_patch_session: Session) -> None:
+def test_result_is_populated_on_cache_hit(seeded_patch_session: Session) -> None:
     store_answer_in_cache(
         seeded_patch_session, "지금 메타 조합 추천해줘", "17.8", "캐시된 답변"
     )
@@ -202,8 +202,10 @@ def test_result_stays_empty_on_cache_hit(seeded_patch_session: Session) -> None:
         )
     )
 
-    # 캐시 히트는 레이트리밋 절감이 목적이라 후속질문용 Groq 호출을 추가하지 않음
-    assert result == {}
+    # PM 결정(2026-08-07): 캐시 히트로 첫 턴에만 후속질문칩이 안 보이는 게
+    # 사용자 입장에서 일관성 없어 보인다는 피드백 — Groq 호출 1회를 감수하고
+    # 캐시 히트에도 후속질문을 생성하도록 변경(레이트리밋 절감보다 UX 우선).
+    assert result["answer_text"] == "캐시된 답변"
 
 
 def test_result_stays_empty_when_groq_fully_fails(

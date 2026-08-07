@@ -89,12 +89,14 @@ def generate_answer_stream(
     → 프롬프트 조립(CHAT-03) → Groq 스트리밍(CHAT-05) 순으로 배선한다. 각 단계
     로직은 이미 해당 TASK에서 검증됐으므로 이 함수는 배선만 담당한다.
 
-    result(선택, CHAT-11): 넘겨주면 실제로 새로 생성된 답변일 때만
-    result["answer_text"]에 최종 답변을 담아둔다(호출측이 스트림을 전부
-    소비한 뒤 후속 질문 생성에 사용). 명확화/범위밖/패치없음 조기 반환,
-    CHAT-08 캐시 히트(레이트리밋 절감이 목적이라 후속질문용 Groq 호출을
-    추가하지 않음), Groq 완전 실패로 인한 폴백 메시지에는 채우지 않는다
-    (LLM 부재 없이 호출측 기본값 [] 그대로 유지 = FollowupChips hidden)."""
+    result(선택, CHAT-11): 넘겨주면 사용자에게 보여줄 실제 답변이 나온 턴에
+    result["answer_text"]를 담아둔다(호출측이 스트림을 전부 소비한 뒤 후속
+    질문 생성에 사용) — CHAT-08 캐시 히트도 포함(PM 결정 2026-08-07: 첫 턴이
+    캐시에 걸렸다는 이유로 후속질문칩만 없는 게 오히려 사용자 입장에서
+    일관성 없어 보인다는 피드백, Groq 호출 1회 추가를 감수). 명확화/범위밖/
+    패치없음 조기 반환과 Groq 완전 실패로 인한 폴백 메시지에는 채우지
+    않는다(LLM 부재 없이 호출측 기본값 [] 그대로 유지 = FollowupChips
+    hidden — 이 두 경우는 여전히 후속질문을 만들 실질적 내용이 없음)."""
     preprocessed = preprocess_input(raw_message)
     if preprocessed.needs_clarification:
         yield CLARIFICATION_MESSAGE
@@ -117,6 +119,8 @@ def generate_answer_stream(
             db, preprocessed.normalized_text, patch_version
         )
         if cached_answer is not None:
+            if result is not None:
+                result["answer_text"] = cached_answer
             yield from cached_answer.split(" ")
             return
 
