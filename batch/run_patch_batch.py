@@ -16,6 +16,7 @@ import os
 import sys
 
 from cache_cleanup import delete_stale_chat_answer_cache
+from comps_refresh import refresh_comps
 from db_session import create_session
 from embeddings import HuggingFaceEmbeddingClient, collect_chunks, upsert_embeddings
 from id_name_mapping import CommunityDragonClient, build_name_maps
@@ -162,6 +163,25 @@ def main() -> int:
     print(
         f"패치 감지: triggered={detection.triggered} {detection.patch_version_before} -> {detection.patch_version_after}"
     )
+
+    if not detection.triggered:
+        # DATA-18: patch_version이 안 바뀌어 전체 배치(step_normalize)가 돌지
+        # 않은 경우에도, 같은 크론 안에서 comps/comp_champions만이라도 op.gg
+        # 최신 메타 조합으로 갱신한다(FE-05·DATA-17에서 겪은 "패치 미변경 시
+        # 메타 회전이 반영 안 되는" 구조적 공백 재발 방지). op.gg 호출 실패 등은
+        # 배치 크론 전체를 죽이지 않고 로그로만 알린다(patch_transition.py와
+        # 동일한 방침).
+        try:
+            with OpggMcpClient() as opgg:
+                refresh = refresh_comps(session, opgg, detection.patch_version_after)
+            session.commit()
+            print(
+                f"comps 주기 재수집(DATA-18): comp_count={refresh.comp_count} "
+                f"deactivated={refresh.deactivated_count}"
+            )
+        except Exception as exc:  # noqa: BLE001 - 배치 크론을 죽이지 않고 로그로만 알림
+            session.rollback()
+            print(f"comps 주기 재수집(DATA-18) 실패: {exc}")
 
     return 0
 

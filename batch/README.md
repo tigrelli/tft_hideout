@@ -24,3 +24,4 @@ DB가 필요한 테스트(`test_data10_*`)는 `docker compose -f ../docker-compo
 - `patch_detection.py`(DATA-12): `tft_list_item_combinations().version`으로 패치 변경 감지, 변경 시 주입받은 콜백 호출 + `patch_detection_runs` 기록.
 - `patch_transition.py`(DATA-13): 배치 단계들을 순서대로 실행하다 하나라도 실패하면 즉시 중단해 `patches.is_current` 승격을 건너뛴다(원자적 전환). 성공/실패 모두 `patch_detection_runs`에 기록.
 - `run_patch_batch.py`(DATA-14): 위 모듈들을 실제로 잇는 진입점. GitHub Actions(`patch-detection.yml`, 아직 `workflow_dispatch`만 — `schedule`은 PM이 수동 검증 후 별도로 켬)가 이 스크립트를 실행한다.
+- `comps_refresh.py`(DATA-18): `run_patch_detection`이 patch_version 미변경으로 스킵한 경우에도, 같은 크론(1일 1회) 안에서 comps/comp_champions만 op.gg 최신 메타 조합으로 갱신한다(챔피언 이름·ID는 이미 적재된 `champions` 테이블 재사용, Community Dragon 재호출 없음). op.gg `tft_list_meta_decks`가 상위 10개만 반환해 같은 patch_version 안에서도 메타가 회전하는데 패치 감지 로직만으로는 이 회전이 반영되지 않던 구조적 공백(FE-05·DATA-17에서 재현) 재발 방지.
