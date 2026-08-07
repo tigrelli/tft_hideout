@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { postLinkClickEvent } from "@/lib/api-client";
 import type { ChatMessage } from "@/lib/use-chat-conversation";
 
@@ -71,6 +71,16 @@ export function ChatMessageList({
   messages: ChatMessage[];
   sessionId: string;
 }) {
+  // 대화가 길어지면 새 메시지·스트리밍 토큰이 와도 스크롤이 따라 내려가지
+  // 않아 매번 수동으로 내려야 하던 문제(PM 피드백) — 메시지 목록 맨 아래에
+  // 빈 sentinel을 두고 messages가 바뀔 때마다(토큰 단위 업데이트 포함)
+  // 그 위치로 스크롤한다.
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
+
   return (
     <div
       role="log"
@@ -100,6 +110,7 @@ export function ChatMessageList({
           )}
         </div>
       ))}
+      <div ref={bottomRef} />
     </div>
   );
 }
