@@ -21,6 +21,7 @@ from normalize import (
     champion_item_build_rows,
     champion_rows,
     clean_augment_description,
+    clean_item_description,
     comp_champion_rows,
     comp_rows,
     ensure_patch,
@@ -94,6 +95,7 @@ ITEMS_KO = {
             "category": "core",
             "composition": ["TFT_Item_FakeA", "TFT_Item_FakeB"],
             "effects": {"AP": 10},
+            "desc": "공격력이 증가합니다.<br><br>@TFTUnitProperty.item:X@",
         }
     ]
 }
@@ -218,6 +220,7 @@ def test_item_rows_maps_category_and_composition() -> None:
                 "https://raw.communitydragon.org/latest/game/"
                 "assets/maps/tft/icons/items/hexcore/tft_item_fakesword.png"
             ),
+            "description": "공격력이 증가합니다.\n\n(수치 정보 없음)",
         }
     ]
 
@@ -316,6 +319,58 @@ def test_augment_rows_cleans_description_template_artifacts() -> None:
     rows = augment_rows(augments_ko, AUGMENTS_EN)
 
     assert rows[0]["description"] == "효과 설명입니다.\n선택: (수치 정보 없음)"
+
+
+# ---- DATA-19: clean_item_description() ---------------------------------------
+# 실제 op.gg tft_list_item_combinations 응답에서 발견된 패턴을 그대로 재현한
+# 합성 fixture(2026-08-08 실호출로 형태 확인, docs/spike/opgg-schema.md 9번).
+
+
+def test_clean_item_description_resolves_known_keyword_reference() -> None:
+    raw = "정밀을 얻습니다.<br><br>{{TFT_Keyword_Precision}}"
+    assert clean_item_description(raw) == (
+        "정밀을 얻습니다.\n\n스킬 공격도 치명타로 적중할 수 있게 되고, "
+        "치명타 확률과 치명타 피해량이 증가합니다."
+    )
+
+
+def test_clean_item_description_removes_unknown_keyword_reference() -> None:
+    raw = "알 수 없는 효과입니다.<br><br>{{TFT_Keyword_NotInGlossary}}"
+    assert clean_item_description(raw) == "알 수 없는 효과입니다."
+
+
+def test_clean_item_description_still_handles_numeric_template_and_tags() -> None:
+    raw = "<tftitemrules>전투 시작: 마나 @TFTUnitProperty.item:X@ 획득</tftitemrules>"
+    assert clean_item_description(raw) == "전투 시작: 마나 (수치 정보 없음) 획득"
+
+
+def test_clean_item_description_no_op_for_plain_text() -> None:
+    assert clean_item_description("매초 잃은 체력의 2%만큼 체력 회복") == (
+        "매초 잃은 체력의 2%만큼 체력 회복"
+    )
+
+
+def test_item_rows_includes_cleaned_description() -> None:
+    items_ko = {
+        "data": [
+            {
+                "apiName": "TFT_Item_FakeGauntlet",
+                "name": "가짜 건틀릿",
+                "category": "core",
+                "composition": [],
+                "effects": {"CritChance": 35},
+                "desc": "<TFTKeyword>정밀</TFTKeyword>을 얻습니다.<br><br>{{TFT_Keyword_Precision}}",
+            }
+        ]
+    }
+    items_en = {"data": [{"apiName": "TFT_Item_FakeGauntlet", "name": "Fake Gauntlet"}]}
+
+    rows = item_rows(items_ko, items_en, CDRAGON_KO)
+
+    assert rows[0]["description"] == (
+        "정밀을 얻습니다.\n\n스킬 공격도 치명타로 적중할 수 있게 되고, "
+        "치명타 확률과 치명타 피해량이 증가합니다."
+    )
 
 
 def test_build_playstyle_text_includes_carry_and_nonfalsy_badges() -> None:
@@ -547,6 +602,48 @@ def test_upsert_traits_items_augments_comps_tag_patch_version(
 
     trait = db_session.get(models.Trait, trait_ids["TFT17_TraitX"])
     assert trait.patch_version == "17.8"
+
+
+# DATA-19: upsert_items()가 description을 저장하고, 재수집(같은 patch_version)
+# 시 갱신도 되는지 확인(다른 컬럼들과 동일한 upsert 패턴).
+def test_upsert_items_persists_and_updates_description(db_session: Session) -> None:
+    item_ids = upsert_items(
+        db_session,
+        "17.8",
+        [
+            {
+                "riot_item_id": "TFT_Item_Y",
+                "name_kr": "아이템와이",
+                "name_en": "ItemY",
+                "item_type": "core",
+                "components": [],
+                "stats": {},
+                "description": "첫 번째 설명",
+            }
+        ],
+    )
+    db_session.commit()
+    item = db_session.get(models.Item, item_ids["TFT_Item_Y"])
+    assert item.description == "첫 번째 설명"
+
+    upsert_items(
+        db_session,
+        "17.8",
+        [
+            {
+                "riot_item_id": "TFT_Item_Y",
+                "name_kr": "아이템와이",
+                "name_en": "ItemY",
+                "item_type": "core",
+                "components": [],
+                "stats": {},
+                "description": "갱신된 설명",
+            }
+        ],
+    )
+    db_session.commit()
+    db_session.refresh(item)
+    assert item.description == "갱신된 설명"
 
 
 def test_upsert_comp_champions_skips_unmapped_champion(db_session: Session) -> None:

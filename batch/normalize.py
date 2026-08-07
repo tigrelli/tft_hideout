@@ -86,6 +86,41 @@ def clean_augment_description(raw: str) -> str:
     return text.strip()
 
 
+# DATA-19: 아이템 desc도 증강체와 같은 op.gg/Community Dragon 원본(cdragon-item)이라
+# <br>·HTML 유사 태그·@...@ 미해석 수치 템플릿이 동일하게 섞여 있다(실호출 838개 전수
+# 확인, docs/spike/opgg-schema.md 9번). 추가로 아이템 특유의 문제: 일부 desc가
+# "{{TFT_Keyword_Precision}}"처럼 재사용 키워드를 완전히 미해석 참조로만 남겨두는데
+# (예: '보석 건틀릿' desc가 "정밀을 얻습니다.<br><br>{{TFT_Keyword_Precision}}"로 끝나
+# "정밀"이 정확히 뭘 주는지는 알 수 없음), op.gg·Community Dragon 어디에도 이 키워드를
+# 해석해주는 별도 엔드포인트가 없다(cdragon/tft 전체 덤프 top-level 키가
+# items/setData/sets뿐, 재확인 완료). 실측 결과 이런 재사용 키워드는 정밀/화상/냉각/
+# 상처 4종뿐이라(DATA-07 Legend 목록과 같은 성격) 수동 유지 사전으로 보강한다 —
+# PM 승인 필요, 문구는 TFT 공식 키워드 설명을 참고해 작성한 초안(부정확하면 PM이
+# 직접 수정).
+_ITEM_KEYWORD_GLOSSARY: dict[str, str] = {
+    "TFT_Keyword_Precision": (
+        "스킬 공격도 치명타로 적중할 수 있게 되고, 치명타 확률과 치명타 피해량이 증가합니다."
+    ),
+    "TFT_Keyword_Burn": "매초 잃은 체력의 일정 비율만큼 지속 피해를 입고, 받는 회복량이 감소합니다.",
+    "TFT_Keyword_Chill": "공격 속도가 감소합니다.",
+    "TFT_Keyword_Wound": "받는 회복량이 감소합니다.",
+}
+_KEYWORD_REFERENCE_PATTERN = re.compile(r"\{\{([^{}]+)\}\}")
+
+
+def clean_item_description(raw: str) -> str:
+    """아이템 desc 원문을 정리한다. 순서 중요: 재사용 키워드 참조를 먼저 실제
+    설명으로 풀어낸 뒤(사전에 없는 키워드는 안전하게 제거 — 미해석 `{{...}}`
+    구문을 그대로 노출하지 않기 위함), 증강체와 동일한 태그·수치 템플릿 정리를
+    적용한다."""
+
+    def _resolve_keyword(match: re.Match[str]) -> str:
+        return _ITEM_KEYWORD_GLOSSARY.get(match.group(1), "")
+
+    text = _KEYWORD_REFERENCE_PATTERN.sub(_resolve_keyword, raw)
+    return clean_augment_description(text)
+
+
 # ---- 순수 변환 함수(DB 미접근, 유닛 테스트 대상) ------------------------------
 
 
@@ -174,6 +209,9 @@ def item_rows(
                 "components": _or_default(i_ko.get("composition"), []),
                 "stats": _or_default(i_ko.get("effects"), {}),
                 "square_icon_url": cdragon_asset_url(icon) if icon else None,
+                "description": clean_item_description(
+                    _or_default(i_ko.get("desc"), "")
+                ),
             }
         )
     return rows
@@ -396,6 +434,7 @@ def upsert_items(
             "components": stmt.excluded.components,
             "stats": stmt.excluded.stats,
             "square_icon_url": stmt.excluded.square_icon_url,
+            "description": stmt.excluded.description,
         },
     ).returning(models.Item.id, models.Item.riot_item_id)
     return {riot_id: db_id for db_id, riot_id in session.execute(stmt)}

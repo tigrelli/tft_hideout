@@ -101,6 +101,9 @@ class Item(Base):
     components: Mapped[dict] = mapped_column(JSONB, nullable=False)
     stats: Mapped[dict] = mapped_column(JSONB, nullable=False)
     square_icon_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    # DATA-19: op.gg desc 필드를 정리한 효과 설명(HTML 태그 제거・키워드 참조
+    # 해석 완료). 기존 행은 다음 배치/백필 전까지 null.
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Augment(Base):
