@@ -22,8 +22,22 @@ INTENT_DOC_TYPES: dict[str, tuple[str, ...]] = {
     INTENT_COMP_RECOMMENDATION: ("comp", "playstyle"),
     INTENT_ITEM_RECOMMENDATION: ("item_build",),
     INTENT_AUGMENT_RECOMMENDATION: ("augment",),
-    INTENT_GENERAL_STRATEGY: ("comp", "playstyle", "augment", "item_build"),
+    # champion: 2026-08-07 PM 피드백 — "3코스트 챔피언은?"처럼 코스트/특성 등
+    # 챔피언 자체를 묻는 질문이 검색 문서가 아예 없어 항상 "정보 없음"으로만
+    # 답하던 문제. "챔피언"을 키워드 목록에 추가하는 방안은 "이 챔피언 빌드
+    # 추천"(item_recommendation) 같은 기존 케이스와 충돌해 보류하고(intent_
+    # classification.py 참고), 대신 애매한 질문은 그대로 2차 LLM 분류에 맡긴다
+    # — general_strategy로 오기만 하면 아래에서 champion 문서를 검색한다.
+    INTENT_GENERAL_STRATEGY: ("comp", "playstyle", "augment", "item_build", "champion"),
 }
+
+# 챔피언 코스트 목록형 질문("3코스트 챔피언은?")은 벡터 유사도 상위 몇 개로는
+# 부족하다 — 코스트 하나에 최대 18명(1코스트, 2026-08-07 실측)까지 있어,
+# 다른 doc_type과 top_k를 n분의 1로 나누면 1명만 뽑혀 "정보 없음"과 별
+# 차이 없는 부분 답변만 나온다(2026-08-07 PM 피드백). champion 청크는
+# 문장이 짧아 넉넉하게 가져와도 비용 부담이 적으므로, champion만 별도의
+# 고정 top_k를 쓰고 나머지 doc_type끼리 기존 top_k를 n분의 1로 나눈다.
+GENERAL_STRATEGY_CHAMPION_TOP_K = 20
 
 # comp 청크는 embeddings.py collect_chunks()가 doc_metadata에 "tier_rank"를
 # 심어둔다(comp_rows()가 만드는 값 그대로: OP·S·A·B·C, 없으면 "unknown").
@@ -81,6 +95,30 @@ def hybrid_search(
     return list(session.scalars(stmt).all())
 
 
+def _search_single_doc_type(
+    session: Session,
+    doc_type: str,
+    patch_version: str,
+    query_embedding: list[float],
+    count: int,
+) -> list[MetaDocumentEmbedding]:
+    if count <= 0:
+        return []
+    stmt = (
+        select(MetaDocumentEmbedding)
+        .where(
+            MetaDocumentEmbedding.patch_version == patch_version,
+            MetaDocumentEmbedding.doc_type == doc_type,
+        )
+        .order_by(
+            _TIER_RANK_PRIORITY,
+            MetaDocumentEmbedding.embedding.cosine_distance(query_embedding),
+        )
+        .limit(count)
+    )
+    return list(session.scalars(stmt).all())
+
+
 def _balanced_search_by_doc_type(
     session: Session,
     doc_types: tuple[str, ...],
@@ -88,26 +126,30 @@ def _balanced_search_by_doc_type(
     query_embedding: list[float],
     top_k: int,
 ) -> list[MetaDocumentEmbedding]:
-    """top_k를 doc_types 개수로 균등 배분하고(나머지는 앞쪽 타입부터 1개씩
-    더 배정 — doc_types 순서상 comp가 먼저라 "메타" 질의에 가장 중요한
-    타입이 우선권을 가짐), 타입별로 각각 top-N 벡터 검색을 수행해 합친다."""
-    base, remainder = divmod(top_k, len(doc_types))
+    """champion은 GENERAL_STRATEGY_CHAMPION_TOP_K로 고정 배정하고(코스트
+    목록형 질문 대응), 나머지 doc_type끼리 top_k를 균등 배분한다(나머지는
+    앞쪽 타입부터 1개씩 더 배정 — doc_types 순서상 comp가 먼저라 "메타"
+    질의에 가장 중요한 타입이 우선권을 가짐). 타입별로 각각 top-N 벡터
+    검색을 수행해 합친다."""
     results: list[MetaDocumentEmbedding] = []
-    for index, doc_type in enumerate(doc_types):
-        count = base + (1 if index < remainder else 0)
-        if count <= 0:
-            continue
-        stmt = (
-            select(MetaDocumentEmbedding)
-            .where(
-                MetaDocumentEmbedding.patch_version == patch_version,
-                MetaDocumentEmbedding.doc_type == doc_type,
+    if "champion" in doc_types:
+        results.extend(
+            _search_single_doc_type(
+                session,
+                "champion",
+                patch_version,
+                query_embedding,
+                GENERAL_STRATEGY_CHAMPION_TOP_K,
             )
-            .order_by(
-                _TIER_RANK_PRIORITY,
-                MetaDocumentEmbedding.embedding.cosine_distance(query_embedding),
-            )
-            .limit(count)
         )
-        results.extend(session.scalars(stmt).all())
+
+    remaining_types = [dt for dt in doc_types if dt != "champion"]
+    base, remainder = divmod(top_k, len(remaining_types))
+    for index, doc_type in enumerate(remaining_types):
+        count = base + (1 if index < remainder else 0)
+        results.extend(
+            _search_single_doc_type(
+                session, doc_type, patch_version, query_embedding, count
+            )
+        )
     return results

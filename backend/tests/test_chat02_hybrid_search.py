@@ -197,6 +197,91 @@ def test_general_strategy_searches_all_doc_types(seeded_docs: Engine) -> None:
     }
 
 
+def test_general_strategy_includes_champion_doc_type(seeded_docs: Engine) -> None:
+    """2026-08-07 PM 피드백: "3코스트 챔피언은?" 질의가 champion 문서를
+    찾을 수 있어야 한다(신규 doc_type)."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="champion",
+                source_table="champions",
+                source_id=1,
+                content_text="가짜챔프(3코스트) 챔피언. 특성: 학살자.",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                doc_metadata={"name": "가짜챔프", "cost": 3},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "champion" in {r.doc_type for r in results}
+
+
+def test_general_strategy_champion_allocation_ignores_top_k(
+    seeded_docs: Engine,
+) -> None:
+    """2026-08-07 PM 피드백: "3코스트 챔피언은?"에 챔피언 1명만 나오던 문제 —
+    champion은 top_k를 다른 doc_type과 나누지 않고 GENERAL_STRATEGY_CHAMPION_TOP_K
+    만큼 고정으로 가져와야 한다(코스트 하나에 최대 18명까지 있어 균등 배분이면
+    1명만 뽑힘). top_k=1로 호출해도 15명이 전부 반환되는지 확인한다."""
+    with Session(seeded_docs) as session:
+        for i in range(15):
+            session.execute(
+                insert(MetaDocumentEmbedding).values(
+                    patch_version="17.8",
+                    doc_type="champion",
+                    source_table="champions",
+                    source_id=i,
+                    content_text=f"챔프{i}(3코스트) 챔피언. 특성: 학살자.",
+                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                    doc_metadata={"name": f"챔프{i}", "cost": 3},
+                )
+            )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+            top_k=1,
+        )
+    champion_results = [r for r in results if r.doc_type == "champion"]
+    assert len(champion_results) == 15
+
+
+def test_comp_recommendation_does_not_search_champion_doc_type(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="champion",
+                source_table="champions",
+                source_id=1,
+                content_text="가짜챔프(3코스트) 챔피언. 특성: 학살자.",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                doc_metadata={"name": "가짜챔프", "cost": 3},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_COMP_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "champion" not in {r.doc_type for r in results}
+
+
 def test_top_k_orders_by_cosine_distance_ascending(seeded_docs: Engine) -> None:
     with Session(seeded_docs) as session:
         results = hybrid_search(

@@ -52,6 +52,15 @@ def test_classify_by_keyword_returns_none_when_ambiguous_or_no_match() -> None:
     assert classify_by_keyword("이 조합에 넣을 아이템 뭐가 좋아?") is None
 
 
+def test_classify_by_keyword_returns_none_for_champion_cost_query() -> None:
+    # "챔피언"을 키워드로 추가하면 "이 챔피언 빌드 추천"(item_recommendation)
+    # 같은 기존 케이스와 충돌해(둘 다 매칭 -> 모호) 오히려 분류 품질이
+    # 떨어짐(2026-08-07 확인) — "3코스트 챔피언은?" 류는 일부러 키워드
+    # 매칭 없이 2차 LLM 분류로 넘긴다(general_strategy "위 세 가지에 속하지
+    # 않는 일반 전략 질문" 설명에 맞게 LLM이 판단).
+    assert classify_by_keyword("3코스트 챔피언은?") is None
+
+
 def test_classify_by_llm_returns_mock_intent_for_ambiguous_query() -> None:
     def mock_llm_call(system_prompt: str, query: str) -> str:
         assert query == "이 조합에 넣을 아이템 뭐가 좋아?"
