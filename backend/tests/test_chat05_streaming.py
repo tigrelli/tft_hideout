@@ -7,11 +7,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import insert, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db.models import ChatLog, Patch
+from db.models import EMBEDDING_DIM, ChatLog, Champion, MetaDocumentEmbedding, Patch
 from services.chat_stream import (
     CLARIFICATION_MESSAGE,
     FALLBACK_MESSAGE,
@@ -21,7 +21,10 @@ from services.chat_stream import (
     generate_answer_stream,
     stream_llm_answer,
 )
-from services.intent_classification import INTENT_COMP_RECOMMENDATION
+from services.intent_classification import (
+    INTENT_COMP_RECOMMENDATION,
+    INTENT_ITEM_RECOMMENDATION,
+)
 
 # ---- build_sse_stream(토큰 제너레이터 -> SSE 포맷) -------------------------------
 
@@ -321,3 +324,107 @@ def test_search_embedding_is_just_current_message_on_first_turn(
     )
 
     assert captured["text"] == "지금 메타 조합 추천해줘"
+
+
+# ---- item_recommendation 후속질문 구조화 조회(2026-08-07 PM 요청) --------------
+
+
+def test_item_recommendation_followup_bypasses_embed_and_search_via_structured_lookup(
+    seeded_patch_session: Session,
+) -> None:
+    """직전 답변에 챔피언 링크가 있으면 의미 검색(embed_fn/search_fn)을 아예
+    호출하지 않고 정확한 champion_id로 구조화 조회해야 한다(2026-08-07 PM
+    요청 — "이 챔피언들" 후속질문에 무관한 챔피언이 섞이던 문제의 근본
+    해결책). embed_fn/search_fn이 호출되면 즉시 실패시켜 우회를 검증한다."""
+    seeded_patch_session.execute(
+        insert(Champion).values(
+            patch_version="17.8",
+            riot_champion_id="TFT17_Bard",
+            name_kr="바드",
+            name_en="Bard",
+            cost=5,
+        )
+    )
+    seeded_patch_session.flush()
+    champion_id = seeded_patch_session.scalar(
+        select(Champion.id).where(Champion.riot_champion_id == "TFT17_Bard")
+    )
+    seeded_patch_session.execute(
+        insert(MetaDocumentEmbedding).values(
+            patch_version="17.8",
+            doc_type="item_build",
+            source_table="champion_item_builds",
+            source_id=1,
+            content_text="바드 아이템 빌드: 보석 건틀릿, 내셔의 이빨, 라바돈의 죽음모자.",
+            embedding=[0.0] * EMBEDDING_DIM,
+            doc_metadata={"champion": "바드"},
+        )
+    )
+    seeded_patch_session.execute(
+        insert(ChatLog).values(
+            session_id="11111111-1111-1111-1111-111111111111",
+            patch_version="17.8",
+            user_query="5코스트 챔피언은?",
+            intent=INTENT_COMP_RECOMMENDATION,
+            retrieved_doc_ids={},
+            answer=f"[바드](/items/builds?champion_id={champion_id}) 등입니다.",
+            latency_ms=100,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    seeded_patch_session.commit()
+
+    tokens = list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "이 챔피언 아이템 뭐 써야해",
+            embed_fn=_fail_if_called("embed_fn"),
+            classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
+            search_fn=_fail_if_called("search_fn"),
+            stream_fn=lambda sp, um: iter(["답변"]),
+        )
+    )
+
+    assert tokens == ["답변"]
+
+
+def test_item_recommendation_followup_without_champion_links_falls_back_to_search(
+    seeded_patch_session: Session,
+) -> None:
+    """직전 답변에 챔피언 링크가 없으면(예: 조합 링크만 있음) 기존처럼
+    의미 검색으로 폴백해야 한다."""
+    seeded_patch_session.execute(
+        insert(ChatLog).values(
+            session_id="11111111-1111-1111-1111-111111111111",
+            patch_version="17.8",
+            user_query="지금 메타 조합 추천해줘",
+            intent=INTENT_COMP_RECOMMENDATION,
+            retrieved_doc_ids={},
+            answer="[아이오니아 마법사](/comps?id=1) 조합이 강세입니다.",
+            latency_ms=100,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    seeded_patch_session.commit()
+
+    search_called = {"value": False}
+
+    def fake_search_fn(db, intent, patch, emb):
+        search_called["value"] = True
+        return []
+
+    tokens = list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "아이템은 뭐가 좋아",
+            embed_fn=lambda text: [0.0],
+            classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
+            search_fn=fake_search_fn,
+            stream_fn=lambda sp, um: iter(["답변"]),
+        )
+    )
+
+    assert search_called["value"] is True
+    assert tokens == ["답변"]

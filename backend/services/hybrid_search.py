@@ -8,7 +8,7 @@ from __future__ import annotations
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, aliased
 
-from db.models import MetaDocumentEmbedding
+from db.models import Champion, MetaDocumentEmbedding
 from services.intent_classification import (
     INTENT_AUGMENT_RECOMMENDATION,
     INTENT_COMP_RECOMMENDATION,
@@ -196,5 +196,53 @@ def _balanced_item_build_search(
         .where(ranked.c.champion_rank <= ITEM_BUILD_PER_CHAMPION_LIMIT)
         .order_by(ranked_doc.embedding.cosine_distance(query_embedding))
         .limit(ITEM_RECOMMENDATION_TOP_K)
+    )
+    return list(session.scalars(stmt).all())
+
+
+def lookup_item_builds_by_champion_ids(
+    session: Session,
+    patch_version: str,
+    champion_ids: list[int],
+) -> list[MetaDocumentEmbedding]:
+    """의미 검색(임베딩 유사도) 대신, 직전 답변에 이미 있는 정확한
+    champion_id로 그 챔피언들의 아이템 빌드만 구조화 조회한다(2026-08-07
+    PM 요청). chat_links.extract_champion_ids_from_answer가 직전 봇 답변의
+    `/items/builds?champion_id={id}` 링크에서 뽑아준 id를 그대로 받는다 —
+    의미 검색은 "이 챔피언들"을 근사할 뿐이라 무관한 챔피언이 섞이거나
+    언급된 챔피언이 빠지는 문제가 실제로 확인됐는데(예: 5코스트 9명 질문
+    후속에 다른 코스트 챔피언들이 섞여 나옴), 링크에 이미 있는 id를
+    재사용하면 100% 정확하다. 정렬 기준이 없어(구조화 조회라 "가까운 순"
+    개념 자체가 없음) id 오름차순(=적재 시 play_rate 내림차순 순서와
+    대략 일치)으로 챔피언당 ITEM_BUILD_PER_CHAMPION_LIMIT개까지만 남긴다."""
+    if not champion_ids:
+        return []
+    champion_names = [
+        name
+        for (name,) in session.execute(
+            select(Champion.name_kr).where(
+                Champion.patch_version == patch_version,
+                Champion.id.in_(champion_ids),
+            )
+        )
+    ]
+    if not champion_names:
+        return []
+    champion_rank = func.row_number().over(
+        partition_by=MetaDocumentEmbedding.doc_metadata["champion"].astext,
+        order_by=MetaDocumentEmbedding.id,
+    )
+    ranked = (
+        select(MetaDocumentEmbedding, champion_rank.label("champion_rank"))
+        .where(
+            MetaDocumentEmbedding.patch_version == patch_version,
+            MetaDocumentEmbedding.doc_type == "item_build",
+            MetaDocumentEmbedding.doc_metadata["champion"].astext.in_(champion_names),
+        )
+        .subquery()
+    )
+    ranked_doc = aliased(MetaDocumentEmbedding, ranked)
+    stmt = select(ranked_doc).where(
+        ranked.c.champion_rank <= ITEM_BUILD_PER_CHAMPION_LIMIT
     )
     return list(session.scalars(stmt).all())

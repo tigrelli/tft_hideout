@@ -12,11 +12,13 @@ from sqlalchemy.orm import Session
 
 from db.models import ChatLog, MetaDocumentEmbedding
 from services.chat_cache import get_cached_answer, store_answer_in_cache
-from services.chat_links import insert_links
+from services.chat_links import extract_champion_ids_from_answer, insert_links
 from services.chat_logging import record_chat_log
 from services.chat_postprocessing import postprocess_answer
 from services.chat_preprocessing import get_conversation_history, preprocess_input
 from services.current_patch import get_current_patch_version
+from services.hybrid_search import lookup_item_builds_by_champion_ids
+from services.intent_classification import INTENT_ITEM_RECOMMENDATION
 from services.prompt_assembly import assemble_system_turn, assemble_user_turn
 
 CLARIFICATION_MESSAGE = (
@@ -144,11 +146,28 @@ def generate_answer_stream(
             return
 
     intent = classify_fn(preprocessed.normalized_text)
-    search_query_text = _build_search_query_text(
-        preprocessed.normalized_text, conversation_history
-    )
-    query_embedding = embed_fn(search_query_text)
-    retrieved_docs = search_fn(db, intent, patch_version, query_embedding)
+
+    # 후속질문이 "이 챔피언들"처럼 대명사로 직전 답변을 가리키면, 의미 검색은
+    # 근사할 뿐이라 무관한 챔피언이 섞이거나 언급된 챔피언이 빠지는 문제가
+    # 실제로 확인됨(2026-08-07 PM 피드백 — 5코스트 9명 질문 후속에 다른
+    # 코스트 챔피언들이 섞여 나옴). 직전 답변에 이미 정확한 champion_id가
+    # 링크로 박혀있으므로(CHAT-07), item_recommendation 후속 턴에서는 의미
+    # 검색 대신 그 id로 구조화 조회한다 — 성공하면(=직전 답변에 챔피언
+    # 링크가 있으면) 임베딩 호출 자체를 건너뛰어 HuggingFace 호출도 아낀다.
+    retrieved_docs: list[MetaDocumentEmbedding] = []
+    if intent == INTENT_ITEM_RECOMMENDATION and conversation_history:
+        champion_ids = extract_champion_ids_from_answer(conversation_history[-1].answer)
+        if champion_ids:
+            retrieved_docs = lookup_item_builds_by_champion_ids(
+                db, patch_version, champion_ids
+            )
+
+    if not retrieved_docs:
+        search_query_text = _build_search_query_text(
+            preprocessed.normalized_text, conversation_history
+        )
+        query_embedding = embed_fn(search_query_text)
+        retrieved_docs = search_fn(db, intent, patch_version, query_embedding)
 
     system_prompt = assemble_system_turn(intent)
     user_prompt = assemble_user_turn(

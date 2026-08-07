@@ -12,9 +12,9 @@ from sqlalchemy import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db.models import EMBEDDING_DIM, MetaDocumentEmbedding, Patch
+from db.models import EMBEDDING_DIM, Champion, MetaDocumentEmbedding, Patch
 from services.embedding_client import EmbeddingError, HuggingFaceEmbeddingClient
-from services.hybrid_search import hybrid_search
+from services.hybrid_search import hybrid_search, lookup_item_builds_by_champion_ids
 from services.intent_classification import (
     INTENT_AUGMENT_RECOMMENDATION,
     INTENT_COMP_RECOMMENDATION,
@@ -500,3 +500,111 @@ def test_general_strategy_balanced_search_orders_comp_allocation_by_tier(
         )
     comp_results = [r for r in results if r.doc_type == "comp"]
     assert comp_results[0].source_id == 302
+
+
+# ---- lookup_item_builds_by_champion_ids: 구조화 조회(2026-08-07 PM 요청) --------
+
+
+def test_lookup_item_builds_by_champion_ids_returns_only_requested_champions(
+    seeded_docs: Engine,
+) -> None:
+    """의미 검색을 완전히 우회해 정확히 요청한 champion_id들의 빌드만
+    반환해야 한다 — "이 챔피언들" 후속질문에 무관한 챔피언이 섞이던 문제의
+    근본 해결책."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(Champion).values(
+                id=1001,
+                patch_version="17.8",
+                riot_champion_id="TFT17_Bard",
+                name_kr="바드",
+                name_en="Bard",
+                cost=5,
+            )
+        )
+        session.execute(
+            insert(Champion).values(
+                id=1002,
+                patch_version="17.8",
+                riot_champion_id="TFT17_Shen",
+                name_kr="쉔",
+                name_en="Shen",
+                cost=5,
+            )
+        )
+        # 요청하지 않을 챔피언(아리) — 결과에 섞이면 안 됨
+        session.execute(
+            insert(Champion).values(
+                id=1003,
+                patch_version="17.8",
+                riot_champion_id="TFT17_Ahri",
+                name_kr="아리",
+                name_en="Ahri",
+                cost=4,
+            )
+        )
+        for name, source_id in [("바드", 500), ("쉔", 501), ("아리", 502)]:
+            session.execute(
+                insert(MetaDocumentEmbedding).values(
+                    patch_version="17.8",
+                    doc_type="item_build",
+                    source_table="champion_item_builds",
+                    source_id=source_id,
+                    content_text=f"{name} 아이템 빌드",
+                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                    doc_metadata={"champion": name},
+                )
+            )
+        session.commit()
+
+        results = lookup_item_builds_by_champion_ids(session, "17.8", [1001, 1002])
+
+    champion_names = {r.doc_metadata["champion"] for r in results}
+    assert champion_names == {"바드", "쉔"}
+
+
+def test_lookup_item_builds_by_champion_ids_caps_per_champion(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(Champion).values(
+                id=1001,
+                patch_version="17.8",
+                riot_champion_id="TFT17_Bard",
+                name_kr="바드",
+                name_en="Bard",
+                cost=5,
+            )
+        )
+        for i in range(5):
+            session.execute(
+                insert(MetaDocumentEmbedding).values(
+                    patch_version="17.8",
+                    doc_type="item_build",
+                    source_table="champion_item_builds",
+                    source_id=600 + i,
+                    content_text=f"바드 아이템 빌드 {i}",
+                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                    doc_metadata={"champion": "바드"},
+                )
+            )
+        session.commit()
+
+        results = lookup_item_builds_by_champion_ids(session, "17.8", [1001])
+
+    assert len(results) == 2
+
+
+def test_lookup_item_builds_by_champion_ids_returns_empty_for_empty_input(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        assert lookup_item_builds_by_champion_ids(session, "17.8", []) == []
+
+
+def test_lookup_item_builds_by_champion_ids_returns_empty_for_unknown_ids(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        assert lookup_item_builds_by_champion_ids(session, "17.8", [999999]) == []

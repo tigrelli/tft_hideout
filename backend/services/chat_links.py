@@ -17,6 +17,7 @@ import re
 from db.models import MetaDocumentEmbedding
 
 _QUOTED_NAME_PATTERN = re.compile(r"'([^']+)'")
+_CHAMPION_LINK_ID_PATTERN = re.compile(r"/items/builds\?champion_id=(\d+)")
 
 # doc_type -> IA 화면 URL(개별 상세 페이지가 없는 유형은 목록 페이지로 연결)
 _LIST_PAGE_URLS: dict[str, str] = {
@@ -58,3 +59,20 @@ def insert_links(answer_text: str, retrieved_docs: list[MetaDocumentEmbedding]) 
         return f"[{name}]({url})"
 
     return _QUOTED_NAME_PATTERN.sub(_replace, answer_text)
+
+
+def extract_champion_ids_from_answer(answer_text: str) -> list[int]:
+    """직전 봇 답변에 심어진 챔피언 링크(`_link_target`이 만든
+    `/items/builds?champion_id={id}`의 역방향)에서 champion_id를 그대로
+    뽑아낸다. 후속질문이 "이 챔피언들"처럼 대명사로 직전 답변을 가리킬 때,
+    의미 검색(임베딩 유사도)으로 근사하면 무관한 챔피언이 섞이거나 언급된
+    챔피언이 빠지는 문제가 실제로 확인됨(2026-08-07 PM 피드백) — 링크에
+    이미 정확한 champion_id가 있으므로 hybrid_search.
+    lookup_item_builds_by_champion_ids()가 의미 검색 대신 이 id로 정확히
+    구조화 조회하는 데 쓴다. 중복은 처음 등장한 순서를 유지하며 제거."""
+    seen: list[int] = []
+    for match in _CHAMPION_LINK_ID_PATTERN.finditer(answer_text):
+        champion_id = int(match.group(1))
+        if champion_id not in seen:
+            seen.append(champion_id)
+    return seen

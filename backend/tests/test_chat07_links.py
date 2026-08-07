@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from db.models import MetaDocumentEmbedding
-from services.chat_links import insert_links
+from services.chat_links import extract_champion_ids_from_answer, insert_links
 
 
 def _doc(
@@ -122,3 +122,30 @@ def test_mixed_verified_and_unverified_names() -> None:
 
     assert "[이즈리얼 캐리](/comps?id=3)" in result
     assert "'환상의 5티어 조합'" in result
+
+
+# ---- extract_champion_ids_from_answer: 후속질문 구조화 조회용(2026-08-07) ------
+
+
+def test_extract_champion_ids_from_answer_parses_all_links() -> None:
+    answer = (
+        "17.8 패치 기준으로는 [블리츠크랭크](/items/builds?champion_id=45), "
+        "[벡스](/items/builds?champion_id=52), [바드](/items/builds?champion_id=14)"
+        "이 5코스트 챔피언입니다."
+    )
+    assert extract_champion_ids_from_answer(answer) == [45, 52, 14]
+
+
+def test_extract_champion_ids_from_answer_dedupes_preserving_first_order() -> None:
+    answer = (
+        "[바드](/items/builds?champion_id=14)는 강력합니다. "
+        "[바드](/items/builds?champion_id=14) 최고!"
+    )
+    assert extract_champion_ids_from_answer(answer) == [14]
+
+
+def test_extract_champion_ids_from_answer_returns_empty_when_no_champion_links() -> (
+    None
+):
+    answer = "[이즈리얼 캐리](/comps?id=3) 조합이 강력합니다."
+    assert extract_champion_ids_from_answer(answer) == []
