@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-MAX_FOLLOWUP_QUESTIONS = 3
+MAX_FOLLOWUP_QUESTIONS = 1
 FOLLOWUP_MAX_TOKENS = 200
 
 _SYSTEM_PROMPT = (

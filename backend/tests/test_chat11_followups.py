@@ -33,16 +33,15 @@ def _fail_if_called(*args: object, **kwargs: object) -> str:
 
 
 def test_generate_followup_questions_parses_multiline_output() -> None:
+    # MAX_FOLLOWUP_QUESTIONS=1(2026-08-07 PM 결정, 화면에 1개만 노출)이라
+    # LLM이 여러 줄을 출력해도 첫 줄만 남는지 확인한다(멀티라인 파싱 자체는
+    # 여전히 정상 동작해야 함).
     def llm_call(system_prompt: str, user_message: str, *, max_tokens: int) -> str:
         return "그 조합에 어울리는 증강체는?\n다른 S티어 조합도 알려줘\n이 조합의 코어 아이템은?"
 
     questions = generate_followup_questions("17.8 패치 기준 답변", llm_call)
 
-    assert questions == [
-        "그 조합에 어울리는 증강체는?",
-        "다른 S티어 조합도 알려줘",
-        "이 조합의 코어 아이템은?",
-    ]
+    assert questions == ["그 조합에 어울리는 증강체는?"]
 
 
 def test_generate_followup_questions_strips_bullet_characters_and_blank_lines() -> None:
@@ -51,7 +50,7 @@ def test_generate_followup_questions_strips_bullet_characters_and_blank_lines() 
 
     questions = generate_followup_questions("답변", llm_call)
 
-    assert questions == ["질문 하나", "질문 둘"]
+    assert questions == ["질문 하나"]
 
 
 def test_generate_followup_questions_caps_at_max_questions() -> None:
@@ -61,7 +60,7 @@ def test_generate_followup_questions_caps_at_max_questions() -> None:
     questions = generate_followup_questions("답변", llm_call)
 
     assert len(questions) == MAX_FOLLOWUP_QUESTIONS
-    assert questions == ["질문 0", "질문 1", "질문 2"]
+    assert questions == ["질문 0"]
 
 
 def test_generate_followup_questions_returns_empty_list_for_blank_answer() -> None:
