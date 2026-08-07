@@ -38,6 +38,11 @@ _EMPTY_CITATION_PATTERN = re.compile(r"\(\s*참고\s*:\s*\)")
 # retrieved_docs의 doc_metadata 중 "이름"으로 취급할 키 — doc_type별로 다름
 # (comp/playstyle/augment는 name, item_build는 champion. DATA-11 collect_chunks 참고)
 _NAME_METADATA_KEYS = ("name", "champion")
+# item_build는 챔피언 하나에 아이템이 여러 개라 단일 문자열이 아니라 목록으로
+# 실려 있다(CHAT-13, DATA-11 collect_chunks의 "items" 키 참고) — 아이템 이름이
+# 여기 없으면 8번 규칙대로 정상 인용된 아이템도 항상 근거검증 경고를 유발한다
+# (PM 제보 2026-08-08, CHAT-12 작업결과).
+_NAME_LIST_METADATA_KEYS = ("items",)
 
 
 def _known_names(retrieved_docs: list[MetaDocumentEmbedding]) -> set[str]:
@@ -47,6 +52,9 @@ def _known_names(retrieved_docs: list[MetaDocumentEmbedding]) -> set[str]:
         for key in _NAME_METADATA_KEYS:
             value = metadata.get(key)
             if value:
+                names.add(value)
+        for key in _NAME_LIST_METADATA_KEYS:
+            for value in metadata.get(key) or []:
                 names.add(value)
     return names
 

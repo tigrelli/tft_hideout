@@ -336,7 +336,17 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
                 "source_table": "champion_item_builds",
                 "source_id": build.id,
                 "content_text": item_build_chunk_text(build, champion_name, item_names),
-                "metadata": {"champion": champion_name},
+                # CHAT-13: 챔피언 이름만 있으면 verify_grounding()이 이 빌드에 등장하는
+                # 아이템 이름을 "알려진 이름"으로 인식하지 못해 정상 인용도 근거검증
+                # 경고를 유발했다(PM 제보 2026-08-08) — 아이템 이름 목록도 함께 싣는다
+                # (링크 대상은 아님, chat_links.py 참고). champion_id는 CHAT-13 후속
+                # 수정으로 추가 — 이게 없으면 챗봇이 만드는 챔피언 링크가 필터 없는
+                # `/items/builds`로만 가서 클릭해도 챔피언이 선택되지 않았다(PM 제보).
+                "metadata": {
+                    "champion": champion_name,
+                    "champion_id": build.champion_id,
+                    "items": item_names,
+                },
             }
         )
 

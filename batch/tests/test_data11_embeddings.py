@@ -338,6 +338,26 @@ def test_collect_chunks_builds_all_doc_types(seeded_session: Session) -> None:
     assert "엑스(캐리)" in comp_chunk["content_text"]
 
 
+# CHAT-13: item_build 문서 metadata에 아이템 이름 목록이 있어야 챗봇 백엔드의
+# verify_grounding()이 인용된 아이템 이름을 "알려진 이름"으로 인식할 수 있다
+# (전엔 champion 키만 있어 아이템 인용이 항상 근거검증 경고를 유발했음, PM 제보
+# 2026-08-08). champion_id는 CHAT-13 후속 수정으로 추가 — 없으면 챗봇이 만드는
+# 챔피언 링크가 필터 없는 `/items/builds`로만 가서 클릭해도 챔피언이 선택되지
+# 않는 문제가 있었다(PM 제보).
+def test_collect_chunks_item_build_metadata_includes_item_names(
+    seeded_session: Session,
+) -> None:
+    chunks = collect_chunks(seeded_session, "17.8")
+    item_build_chunk = next(c for c in chunks if c["doc_type"] == "item_build")
+    champion = seeded_session.scalars(
+        select(models.Champion).where(models.Champion.name_kr == "엑스")
+    ).one()
+
+    assert item_build_chunk["metadata"]["champion"] == "엑스"
+    assert item_build_chunk["metadata"]["champion_id"] == champion.id
+    assert item_build_chunk["metadata"]["items"] == ["A"]
+
+
 def test_collect_chunks_champion_includes_cost_and_traits(
     seeded_session: Session,
 ) -> None:
