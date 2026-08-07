@@ -14,7 +14,7 @@ import time
 from typing import Any, Self
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,13 @@ models = batch_db.models
 DEFAULT_HF_BASE_URL = "https://router.huggingface.co/hf-inference/models"
 DEFAULT_MODEL = "BAAI/bge-m3"
 EMBEDDING_DIM = 1024
+
+# backend/routers/catalog.py의 TOP_BUILDS_PER_CHAMPION과 반드시 같은 값으로
+# 유지한다(챗봇이 인용하는 빌드 범위가 /items/builds 화면에 보이는 범위와
+# 같아야 함). 2026-08-07 실측: champion_item_builds가 패치당 54,289행(챔피언당
+# 수백~천 단위 조합)이라 전부 임베딩하면 HuggingFace 무료 티어를 순식간에
+# 소진하고 RAG 품질도 떨어짐 — play_rate 상위 N개만 임베딩 대상으로 좁힌다.
+TOP_BUILDS_PER_CHAMPION = 10
 
 
 class EmbeddingError(Exception):
@@ -115,8 +122,13 @@ def augment_chunk_text(augment: Any) -> str:
     return f"{augment.name_kr}({augment.tier} 등급) 증강체: {augment.description}"
 
 
-def item_build_chunk_text(build: Any, champion_name: str) -> str:
-    items = ", ".join(build.item_combination) if build.item_combination else "정보 없음"
+def item_build_chunk_text(build: Any, champion_name: str, item_names: list[str]) -> str:
+    """item_names: build.item_combination(op.gg 원본 apiName 리스트, 예:
+    "TFT_Item_Deathblade")를 표시 이름으로 변환한 리스트(호출부가 items 테이블
+    조회 후 전달 — catalog.py GET /catalog/items/builds와 동일한 변환 규칙,
+    2026-08-07 수정: 원래 apiName을 그대로 임베딩해 챗봇이 "TFT_Item_..."
+    같은 내부 ID를 그대로 답변에 인용하던 문제)."""
+    items = ", ".join(item_names) if item_names else "정보 없음"
     return (
         f"{champion_name} 아이템 빌드: {items}. "
         f"승률 {build.win_rate:.1%}, 픽률 {build.play_rate:.1%}, "
@@ -208,20 +220,62 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
             )
         )
     }
-    builds = session.scalars(
-        select(models.ChampionItemBuild).where(
-            models.ChampionItemBuild.patch_version == patch_version
+    # champion_item_builds는 챔피언당 수백~천 단위 조합이 쌓여있어(op.gg 원본
+    # 응답 그대로 저장) 전부 임베딩하면 안 됨 — catalog.py GET /catalog/items/builds와
+    # 동일하게 champion_id별 play_rate 상위 TOP_BUILDS_PER_CHAMPION개만 SQL
+    # 레벨에서 걸러 가져온다.
+    build_rank = func.row_number().over(
+        partition_by=models.ChampionItemBuild.champion_id,
+        order_by=models.ChampionItemBuild.play_rate.desc(),
+    )
+    ranked_builds = (
+        select(
+            models.ChampionItemBuild.id,
+            models.ChampionItemBuild.champion_id,
+            models.ChampionItemBuild.item_combination,
+            models.ChampionItemBuild.play_rate,
+            models.ChampionItemBuild.avg_place,
+            models.ChampionItemBuild.win_rate,
+            build_rank.label("build_rank"),
+        )
+        .where(models.ChampionItemBuild.patch_version == patch_version)
+        .subquery()
+    )
+    builds = session.execute(
+        select(ranked_builds).where(
+            ranked_builds.c.build_rank <= TOP_BUILDS_PER_CHAMPION
         )
     ).all()
+    # item_combination은 op.gg 원본 apiName 리스트라(catalog.py GET
+    # /catalog/items/builds와 동일한 이유) items 테이블에서 표시 이름을
+    # 조회해야 챗봇이 "TFT_Item_Deathblade" 같은 내부 ID를 그대로 답변에
+    # 인용하지 않는다.
+    item_ids = {item_id for build in builds for item_id in build.item_combination}
+    item_name_by_id = (
+        {
+            item.riot_item_id: item.name_kr
+            for item in session.scalars(
+                select(models.Item).where(
+                    models.Item.patch_version == patch_version,
+                    models.Item.riot_item_id.in_(item_ids),
+                )
+            )
+        }
+        if item_ids
+        else {}
+    )
     for build in builds:
         champion = champion_by_id.get(build.champion_id)
         champion_name = champion.name_kr if champion else "알 수 없는 챔피언"
+        item_names = [
+            item_name_by_id.get(item_id, item_id) for item_id in build.item_combination
+        ]
         chunks.append(
             {
                 "doc_type": "item_build",
                 "source_table": "champion_item_builds",
                 "source_id": build.id,
-                "content_text": item_build_chunk_text(build, champion_name),
+                "content_text": item_build_chunk_text(build, champion_name, item_names),
                 "metadata": {"champion": champion_name},
             }
         )

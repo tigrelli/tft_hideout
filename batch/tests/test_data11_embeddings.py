@@ -111,14 +111,24 @@ def test_augment_chunk_text_does_not_include_win_rate() -> None:
 
 def test_item_build_chunk_text() -> None:
     build = _FakeBuild(
-        item_combination=["검", "갑옷"], win_rate=0.2, play_rate=0.25, avg_place=3.5
+        item_combination=["TFT_Item_A", "TFT_Item_B"],
+        win_rate=0.2,
+        play_rate=0.25,
+        avg_place=3.5,
     )
-    text = item_build_chunk_text(build, "가짜챔프")
+    text = item_build_chunk_text(build, "가짜챔프", ["검", "갑옷"])
 
     assert "가짜챔프" in text
     assert "검, 갑옷" in text
+    assert "TFT_Item_A" not in text
     assert "20.0%" in text
     assert "25.0%" in text
+
+
+def test_item_build_chunk_text_no_op_when_item_names_empty() -> None:
+    build = _FakeBuild(item_combination=[], win_rate=0.2, play_rate=0.25, avg_place=3.5)
+    text = item_build_chunk_text(build, "가짜챔프", [])
+    assert "정보 없음" in text
 
 
 # ---- HuggingFaceEmbeddingClient(mock transport) ---------------------------------
@@ -275,6 +285,41 @@ def test_collect_chunks_builds_all_doc_types(seeded_session: Session) -> None:
     assert doc_types == {"comp", "playstyle", "augment", "item_build"}
     comp_chunk = next(c for c in chunks if c["doc_type"] == "comp")
     assert "엑스(캐리)" in comp_chunk["content_text"]
+
+
+def test_collect_chunks_caps_item_build_at_top_n_by_play_rate_per_champion(
+    seeded_session: Session,
+) -> None:
+    """2026-08-07 운영에서 확인된 문제: champion_item_builds가 챔피언당 수백~천
+    단위라 전부 임베딩하면 안 됨(HuggingFace 무료 티어 소진 + 실제로는 0건만
+    임베딩돼 챗봇이 "아이템 빌드는 확인 안 됨"으로만 답하던 원인). champion_id별
+    play_rate 상위 TOP_BUILDS_PER_CHAMPION개만 남는지 검증한다."""
+    from embeddings import TOP_BUILDS_PER_CHAMPION
+
+    champion = seeded_session.scalars(
+        select(models.Champion).where(models.Champion.riot_champion_id == "TFT17_X")
+    ).one()
+    for i in range(TOP_BUILDS_PER_CHAMPION + 5):
+        seeded_session.add(
+            models.ChampionItemBuild(
+                champion_id=champion.id,
+                patch_version="17.8",
+                item_combination=[f"Item{i}"],
+                play_rate=0.5 - i * 0.01,  # 내림차순 — 낮은 i일수록 상위권
+                avg_place=3.0,
+                win_rate=0.2,
+            )
+        )
+    seeded_session.commit()
+
+    chunks = collect_chunks(seeded_session, "17.8")
+    item_build_chunks = [c for c in chunks if c["doc_type"] == "item_build"]
+
+    # 기존 seeded_session fixture의 1건 + 이번에 추가한 TOP_BUILDS_PER_CHAMPION+5건
+    # 중 play_rate 상위 TOP_BUILDS_PER_CHAMPION개만 남아야 함(기존 1건은
+    # play_rate=0.1로 가장 낮아 컷오프됨).
+    assert len(item_build_chunks) == TOP_BUILDS_PER_CHAMPION
+    assert all("Item" in c["content_text"] for c in item_build_chunks)
 
 
 def test_upsert_embeddings_validates_dimension(seeded_session: Session) -> None:
