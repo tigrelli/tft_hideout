@@ -20,13 +20,17 @@ export function ItemBuildsView() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialChampionId = searchParams.get("champion_id");
+  // URL의 champion_id를 useState 초기값으로만 읽으면, 이미 이 페이지에 머무른
+  // 채(같은 경로라 컴포넌트가 재마운트되지 않음) 챗봇 답변의 다른 champion_id
+  // 링크를 연달아 클릭할 때 URL만 바뀌고 화면은 그대로인 문제가 생긴다(PM
+  // 피드백). state로 따로 들고 있는 대신 매 렌더마다 searchParams에서 직접
+  // 계산해 URL을 단일 진실 공급원으로 둔다.
+  const selectedChampionId = searchParams.get("champion_id")
+    ? Number(searchParams.get("champion_id"))
+    : null;
 
   const [data, setData] = useState<ItemBuildsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedChampionId, setSelectedChampionId] = useState<number | null>(
-    initialChampionId ? Number(initialChampionId) : null,
-  );
   const [selectedBuildId, setSelectedBuildId] = useState<number | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
@@ -76,8 +80,8 @@ export function ItemBuildsView() {
   }, [filteredBuilds, selectedBuildId]);
 
   // 화면설계서 2.3 인터랙션: 챔피언 필터 선택 -> URL 쿼리(champion_id, patch)와 동기화.
+  // selectedChampionId는 searchParams에서 직접 계산하므로 URL만 바꾸면 된다.
   function handleChampionChange(championId: number) {
-    setSelectedChampionId(championId);
     const params = new URLSearchParams();
     params.set("champion_id", String(championId));
     if (data) {

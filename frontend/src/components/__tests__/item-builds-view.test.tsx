@@ -1,16 +1,36 @@
+import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ItemBuildsView } from "@/components/item-builds/item-builds-view";
 import type { ItemBuildsResponse } from "@/types/catalog";
 
-const mockSearchParams = new URLSearchParams();
-const mockReplace = vi.fn();
+// ItemBuildsView가 selectedChampionId를 state로 따로 안 들고 매 렌더마다
+// searchParams에서 직접 계산하도록 바뀌어서(2026-08-07, URL 단일 진실 공급원),
+// router.replace 호출이 실제로 useSearchParams()의 반환값을 바꾸고 컴포넌트를
+// 리렌더시켜야 테스트가 실제 동작을 재현한다 — useSyncExternalStore로 최소
+// 구현한 mock router.
+const mockSearchParamsState: { current: URLSearchParams } = {
+  current: new URLSearchParams(),
+};
+const mockSearchParamsListeners = new Set<() => void>();
+const mockReplace = vi.fn((url: string) => {
+  const query = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+  mockSearchParamsState.current = new URLSearchParams(query);
+  mockSearchParamsListeners.forEach((listener) => listener());
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace }),
   usePathname: () => "/items/builds",
-  useSearchParams: () => mockSearchParams,
+  useSearchParams: () =>
+    useSyncExternalStore(
+      (listener) => {
+        mockSearchParamsListeners.add(listener);
+        return () => mockSearchParamsListeners.delete(listener);
+      },
+      () => mockSearchParamsState.current,
+    ),
 }));
 
 const mockItemBuilds: ItemBuildsResponse = {
@@ -68,7 +88,7 @@ describe("ItemBuildsView — 챔피언 필터·아이템 빌드", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    mockSearchParams.delete("champion_id");
+    mockSearchParamsState.current = new URLSearchParams();
     mockReplace.mockClear();
   });
 
@@ -115,7 +135,7 @@ describe("ItemBuildsView — 챔피언 필터·아이템 빌드", () => {
 
   it("URL의 champion_id로 초기 선택되고, 리스트 행을 탭하면 모바일 바텀시트가 열리고 닫힌다", async () => {
     const user = userEvent.setup();
-    mockSearchParams.set("champion_id", "10");
+    mockSearchParamsState.current = new URLSearchParams("champion_id=10");
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => mockItemBuilds,
@@ -135,5 +155,32 @@ describe("ItemBuildsView — 챔피언 필터·아이템 빌드", () => {
 
     await user.click(screen.getByRole("button", { name: "닫기" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("이미 페이지에 머문 채(재마운트 없이) 다른 champion_id로 URL이 바뀌면 화면도 갱신된다", async () => {
+    // 2026-08-07 PM 피드백: 챗봇 답변에서 첫 번째 챔피언 링크는 잘 넘어가는데
+    // 두 번째 챔피언 링크부터는 URL만 바뀌고 화면이 안 바뀌던 문제 — 같은
+    // 경로(/items/builds)라 컴포넌트가 재마운트되지 않는 상태에서, 여기서는
+    // Next.js Link 네비게이션을 재현하기 위해 컴포넌트를 거치지 않고 mock
+    // 라우터 상태를 직접 바꾼다(실제로는 Link가 라우터를 통해 이 상태를 갱신).
+    mockSearchParamsState.current = new URLSearchParams("champion_id=10");
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockItemBuilds,
+    } as Response);
+
+    render(<ItemBuildsView />);
+
+    await screen.findByText("무한의 대검 + 거인의 학살자 + 최후의 속삭임");
+
+    await act(async () => {
+      mockSearchParamsState.current = new URLSearchParams("champion_id=20");
+      mockSearchParamsListeners.forEach((listener) => listener());
+    });
+
+    expect(await screen.findByText("루덴의 메아리")).toBeInTheDocument();
+    expect(
+      screen.queryByText("무한의 대검 + 거인의 학살자 + 최후의 속삭임"),
+    ).not.toBeInTheDocument();
   });
 });
