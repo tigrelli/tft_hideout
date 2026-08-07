@@ -10,6 +10,7 @@ from services.chat_postprocessing import (
     mask_augment_win_rate_leak,
     mask_opponent_nicknames,
     postprocess_answer,
+    strip_internal_doc_marker_leak,
     verify_grounding,
 )
 
@@ -100,6 +101,33 @@ def test_mask_augment_win_rate_leak_masks_multiple_occurrences() -> None:
 
     assert "62%" not in result
     assert "40.5%" not in result
+
+
+# ---- 프롬프트 내부 구획 표시("[검색된 문서]") 누출 제거(2026-08-07 운영 관측) ----
+
+
+def test_strip_internal_doc_marker_leak_removes_marker_and_empty_citation() -> None:
+    answer = "17.8 패치 기준입니다. \n(참고: [검색된 문서])"
+
+    result = strip_internal_doc_marker_leak(answer)
+
+    assert "[검색된 문서]" not in result
+    assert "(참고:" not in result
+    assert result == "17.8 패치 기준입니다."
+
+
+def test_strip_internal_doc_marker_leak_no_op_when_marker_absent() -> None:
+    answer = "17.8 패치 기준입니다. (참고: 조합 정보)"
+    assert strip_internal_doc_marker_leak(answer) == answer
+
+
+def test_postprocess_answer_removes_internal_doc_marker_leak() -> None:
+    answer = "17.8 패치 기준입니다. \n(참고: [검색된 문서])"
+
+    result = postprocess_answer(answer, [])
+
+    assert "[검색된 문서]" not in result
+    assert result == "17.8 패치 기준입니다."
 
 
 # ---- TEST-00 CHAT-06 #5: 상대 닉네임 마스킹 --------------------------------------

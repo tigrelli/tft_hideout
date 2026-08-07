@@ -26,6 +26,15 @@ _QUOTED_NAME_PATTERN = re.compile(r"'([^']+)'")
 _WIN_RATE_LEAK_PATTERN = re.compile(r"승률[^%\n]{0,10}\d+(\.\d+)?%")
 _WIN_RATE_MASK_REPLACEMENT = "승률 정보 비공개"
 
+# 프롬프트 규칙 5(근거 문서 종류를 한 줄로 밝히라)를 지키려다 LLM이 few-shot의
+# "(참고: 조합 정보)" 형식 대신, 프롬프트 자체에 반복 등장하는 내부 구획 표시
+# "[검색된 문서]"를 그대로 베껴 답변에 남기는 경우가 실제 운영에서 관측됨
+# (2026-08-07, "17.8 패치 기준입니다. (참고: [검색된 문서])"). 실제 문서를
+# 가리키지 않는 문자열이라 사용자에게 혼란만 주므로 후처리에서 제거한다
+# (prompt_assembly.py 규칙 5 문구 보강과 함께 이중 방어).
+_INTERNAL_DOC_MARKER = "[검색된 문서]"
+_EMPTY_CITATION_PATTERN = re.compile(r"\(\s*참고\s*:\s*\)")
+
 # retrieved_docs의 doc_metadata 중 "이름"으로 취급할 키 — doc_type별로 다름
 # (comp/playstyle/augment는 name, item_build는 champion. DATA-11 collect_chunks 참고)
 _NAME_METADATA_KEYS = ("name", "champion")
@@ -64,6 +73,17 @@ def mask_augment_win_rate_leak(answer_text: str) -> str:
     return _WIN_RATE_LEAK_PATTERN.sub(_WIN_RATE_MASK_REPLACEMENT, answer_text)
 
 
+def strip_internal_doc_marker_leak(answer_text: str) -> str:
+    """LLM이 프롬프트 내부 구획 표시 `[검색된 문서]`를 실제 문서 이름인 것처럼
+    답변에 그대로 옮긴 경우 제거한다. 마커만 지우면 `(참고: )`처럼 빈 괄호가
+    남을 수 있어 함께 정리한다."""
+    if _INTERNAL_DOC_MARKER not in answer_text:
+        return answer_text
+    text = answer_text.replace(_INTERNAL_DOC_MARKER, "")
+    text = _EMPTY_CITATION_PATTERN.sub("", text)
+    return text.rstrip()
+
+
 def mask_opponent_nicknames(answer_text: str, nicknames: list[str]) -> str:
     """주어진 닉네임 목록을 답변에서 '상대 플레이어'로 치환한다(policies.md 2번).
     LLM 생성 이후 한 번 더 마스킹해, 모델이 프롬프트 규칙을 놓쳤을 가능성을
@@ -82,11 +102,13 @@ def postprocess_answer(
     *,
     opponent_nicknames: list[str] | None = None,
 ) -> str:
-    """CHAT-06 후처리 파이프라인 전체(순서: 승률 마스킹 → 닉네임 마스킹 → 근거검증).
-    근거검증을 마지막에 두는 이유: 마스킹으로 텍스트가 바뀐 뒤에도 인용부호 위치는
-    그대로 유지되므로 순서를 바꿔도 결과는 같지만, 경고문구가 붙는다면 마스킹이
-    전부 끝난 뒤의 최종 답변에 붙는 게 자연스럽다."""
-    text = mask_augment_win_rate_leak(answer_text)
+    """CHAT-06 후처리 파이프라인 전체(순서: 내부 마커 제거 → 승률 마스킹 →
+    닉네임 마스킹 → 근거검증). 근거검증을 마지막에 두는 이유: 마스킹으로
+    텍스트가 바뀐 뒤에도 인용부호 위치는 그대로 유지되므로 순서를 바꿔도
+    결과는 같지만, 경고문구가 붙는다면 마스킹이 전부 끝난 뒤의 최종 답변에
+    붙는 게 자연스럽다."""
+    text = strip_internal_doc_marker_leak(answer_text)
+    text = mask_augment_win_rate_leak(text)
     if opponent_nicknames:
         text = mask_opponent_nicknames(text, opponent_nicknames)
     return verify_grounding(text, retrieved_docs)
