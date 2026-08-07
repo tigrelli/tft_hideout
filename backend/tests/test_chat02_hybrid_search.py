@@ -220,3 +220,142 @@ def test_top_k_limit_is_respected(seeded_docs: Engine) -> None:
             top_k=2,
         )
     assert len(results) == 2
+
+
+# ---- general_strategy doc_type 균형 배분(2026-08-07 운영 관측 버그 회귀) ---------
+
+
+def test_general_strategy_guarantees_comp_representation_even_when_augments_are_closer(
+    seeded_docs: Engine,
+) -> None:
+    """운영에서 재현된 문제: "메타" 같은 추상 질의는 코사인 거리상 augment
+    청크가 comp보다 훨씬 가까울 수 있어, 순수 top-k만 쓰면 comp가 결과에서
+    아예 빠진다(실측: 상위 8개 전부 augment, 최상위 comp는 377개 중 112위).
+    doc_type별 최소 배분으로 comp가 항상 포함되는지 검증한다."""
+    with Session(seeded_docs) as session:
+        # augment 문서를 comp/playstyle과 동일하게 가장 가까운 거리로 4개 추가
+        # 시딩해, 순수 top-5 정렬이라면 comp가 밀려날 수 있는 상황을 재현한다.
+        for i in range(4):
+            session.execute(
+                insert(MetaDocumentEmbedding).values(
+                    patch_version="17.8",
+                    doc_type="augment",
+                    source_table="augments",
+                    source_id=100 + i,
+                    content_text=f"augment mock {i}",
+                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                    doc_metadata={},
+                )
+            )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "comp" in {r.doc_type for r in results}
+
+
+def test_general_strategy_allocates_remainder_to_earlier_doc_types_first(
+    seeded_docs: Engine,
+) -> None:
+    """top_k가 doc_type 개수(4)로 나누어떨어지지 않으면(기본 5), 나머지는
+    INTENT_DOC_TYPES 순서상 앞쪽 타입(comp)부터 1개씩 더 배정된다."""
+    with Session(seeded_docs) as session:
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+            top_k=5,
+        )
+    comp_count = sum(1 for r in results if r.doc_type == "comp")
+    # fixture에는 comp 문서가 1개뿐이라 배정된 2개 중 실제로는 1개만 반환됨
+    assert comp_count == 1
+
+
+# ---- tier_rank 우선순위 정렬(2026-08-07 PM 피드백 회귀) --------------------------
+
+
+def test_comp_recommendation_orders_higher_tier_before_closer_lower_tier(
+    seeded_docs: Engine,
+) -> None:
+    """티어가 1차 정렬 기준이어야 한다 — 코사인 거리가 더 가까운 A티어보다
+    티어가 높은 OP가 항상 먼저 나와야 한다(2026-08-07 PM 피드백: "메타" 질의에
+    A티어만 나오고 OP/S티어 조합이 검색조차 안 됨)."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=201,
+                content_text="A티어 조합(거리 가까움)",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),  # 쿼리와 동일 방향(최단거리)
+                doc_metadata={"tier_rank": "A"},
+            )
+        )
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=202,
+                content_text="OP티어 조합(거리 멂)",
+                embedding=_one_hot(EMBEDDING_DIM, 1, 1.0),  # 직교(더 먼 거리)
+                doc_metadata={"tier_rank": "OP"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_COMP_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+            top_k=1,
+        )
+    # 거리만 보면 201(A)이 훨씬 가깝지만, 티어가 더 높은 202(OP)가 나와야 함
+    assert [r.source_id for r in results] == [202]
+
+
+def test_general_strategy_balanced_search_orders_comp_allocation_by_tier(
+    seeded_docs: Engine,
+) -> None:
+    """doc_type 균형 배분(comp 슬롯) 안에서도 티어 우선순위가 적용돼야 한다."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=301,
+                content_text="B티어 조합(거리 가까움)",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                doc_metadata={"tier_rank": "B"},
+            )
+        )
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=302,
+                content_text="S티어 조합(거리 멂)",
+                embedding=_one_hot(EMBEDDING_DIM, 1, 1.0),
+                doc_metadata={"tier_rank": "S"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+            top_k=4,
+        )
+    comp_results = [r for r in results if r.doc_type == "comp"]
+    assert comp_results[0].source_id == 302

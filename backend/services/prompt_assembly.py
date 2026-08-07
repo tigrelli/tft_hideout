@@ -41,7 +41,11 @@ INTENT_ADDITIONAL_INSTRUCTION: dict[str, str] = {
         "is_legend_related=true 문서는 컨텍스트 자체에서 win_rate가 제외되어 있으니 "
         "해당 증강체의 승률은 언급하지 마라."
     ),
-    INTENT_GENERAL_STRATEGY: "여러 근거문서를 종합해 요약하고, 상세 내용은 링크로 안내하라.",
+    INTENT_GENERAL_STRATEGY: (
+        "여러 근거문서를 종합해 요약하고, 상세 내용은 링크로 안내하라. "
+        "'메타'를 묻는 질문이면 [검색된 문서]에 있는 조합 중 티어가 가장 높은 "
+        "것부터(OP > S > A 순) 우선 언급하라."
+    ),
 }
 
 # 설계서 4.4.1 "답변 포맷 일관성을 위해 few-shot 예시 1~2개(질문-근거-답변 쌍)를
