@@ -38,7 +38,7 @@ export function ChatInput({
         type="submit"
         aria-label="메시지 전송"
         disabled={isSending || !value.trim()}
-        className="rounded-control bg-primary px-4 py-2 text-body text-text-on-brand disabled:opacity-50"
+        className="cursor-pointer rounded-control bg-primary px-4 py-2 text-body text-text-on-brand disabled:cursor-not-allowed disabled:opacity-50"
       >
         {isSending ? "전송 중" : "전송"}
       </button>

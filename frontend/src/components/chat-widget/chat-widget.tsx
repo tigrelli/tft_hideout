@@ -36,7 +36,7 @@ export function ChatWidget() {
                 type="button"
                 aria-label="새 대화"
                 onClick={resetConversation}
-                className="text-caption"
+                className="cursor-pointer text-caption"
               >
                 새 대화
               </button>
@@ -44,6 +44,7 @@ export function ChatWidget() {
                 type="button"
                 aria-label="챗봇 접기"
                 onClick={() => setIsExpanded(false)}
+                className="cursor-pointer"
               >
                 ✕
               </button>
@@ -68,7 +69,7 @@ export function ChatWidget() {
         aria-label={isExpanded ? "챗봇 닫기" : "챗봇 열기"}
         aria-expanded={isExpanded}
         onClick={() => setIsExpanded((prev) => !prev)}
-        className="fixed bottom-4 right-4 z-40 hidden h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-text-on-brand shadow-lg md:right-6 md:flex"
+        className="fixed bottom-4 right-4 z-40 hidden h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-primary text-2xl text-text-on-brand shadow-lg md:right-6 md:flex"
       >
         💬
       </button>
@@ -84,7 +85,7 @@ export function ChatWidget() {
           type="button"
           aria-expanded={isExpanded}
           onClick={() => setIsExpanded(true)}
-          className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 bg-primary px-4 py-3 text-body font-bold text-text-on-brand shadow-lg md:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 flex cursor-pointer items-center gap-2 bg-primary px-4 py-3 text-body font-bold text-text-on-brand shadow-lg md:hidden"
         >
           <span aria-hidden="true" className="text-xl">
             💬
