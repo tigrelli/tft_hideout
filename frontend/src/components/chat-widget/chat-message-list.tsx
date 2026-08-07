@@ -5,12 +5,24 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { postLinkClickEvent } from "@/lib/api-client";
 import type { ChatMessage } from "@/lib/use-chat-conversation";
 
-// CHAT-07이 답변 텍스트에 심어주는 `[이름](url)` 마크다운 링크만 파싱한다
-// (프롬프트가 다른 마크다운 문법을 지시하지 않으므로 전체 마크다운 파서는
-// 불필요, prompt_assembly.py 참고).
+// CHAT-07이 심는 `[이름](url)` 링크, CHAT-12 시스템 프롬프트 9번 규칙이 지시하는
+// `- ` 목록까지만 파싱한다(prompt_assembly.py가 실제로 지시하는 서식이 이
+// 두 가지뿐이라 전체 마크다운 파서는 여전히 과함). 처음엔 `**강조**`도 함께
+// 파싱했었으나, 목록 항목에서 모델이 CHAT-06/07이 의존하는 작은따옴표 인용을
+// 별표로 대체하면서 챔피언/조합 링크가 통째로 사라지는 회귀가 발견돼(2026-08-08
+// PM 제보, CHAT-12 작업결과 참고) 강조 지시 자체를 프롬프트에서 제거했다 —
+// 그래서 이 파서도 강조는 더 이상 다루지 않는다.
 const LINK_PATTERN = /\[([^\]]+)\]\(([^)]+)\)/g;
+// 토큰 사이에 항상 공백 1칸을 끼워 넣는 use-chat-conversation.ts의 재조합 방식
+// 때문에("- 다음줄" 토큰 앞에 "이전줄\n" 토큰이 오면 그 사이에 공백이 끼어
+// " - 다음줄"이 됨) 목록 판정 전에 줄 앞 공백을 허용해야 한다.
+const BULLET_LINE_PATTERN = /^\s*[-*]\s+(.+)$/;
 
-function renderAnswerText(text: string, sessionId: string): ReactNode[] {
+function renderInlineSegments(
+  text: string,
+  sessionId: string,
+  keyPrefix: string,
+): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
   let key = 0;
@@ -23,7 +35,7 @@ function renderAnswerText(text: string, sessionId: string): ReactNode[] {
     const [full, label, url] = match;
     parts.push(
       <Link
-        key={`link-${key++}`}
+        key={`${keyPrefix}-link-${key++}`}
         href={url}
         className="cursor-pointer underline"
         onClick={() => {
@@ -40,6 +52,50 @@ function renderAnswerText(text: string, sessionId: string): ReactNode[] {
     parts.push(text.slice(lastIndex));
   }
   return parts;
+}
+
+function renderAnswerText(text: string, sessionId: string): ReactNode[] {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let currentListItems: string[] = [];
+  let blockKey = 0;
+
+  const flushList = () => {
+    if (currentListItems.length === 0) return;
+    blocks.push(
+      <ul key={`list-${blockKey++}`} className="list-disc space-y-1 pl-5">
+        {currentListItems.map((item, itemIndex) => (
+          <li key={itemIndex}>
+            {renderInlineSegments(
+              item,
+              sessionId,
+              `li-${blockKey}-${itemIndex}`,
+            )}
+          </li>
+        ))}
+      </ul>,
+    );
+    currentListItems = [];
+  };
+
+  lines.forEach((line, lineIndex) => {
+    const bulletMatch = BULLET_LINE_PATTERN.exec(line);
+    if (bulletMatch) {
+      currentListItems.push(bulletMatch[1]);
+      return;
+    }
+    flushList();
+    const displayLine = lineIndex === 0 ? line : line.replace(/^ /, "");
+    blocks.push(
+      ...renderInlineSegments(displayLine, sessionId, `ln-${blockKey++}`),
+    );
+    if (lineIndex < lines.length - 1) {
+      blocks.push("\n");
+    }
+  });
+  flushList();
+
+  return blocks;
 }
 
 // 첫 토큰이 오기 전(Render 콜드스타트·Groq 지연 등으로 느릴 수 있음, policies.md

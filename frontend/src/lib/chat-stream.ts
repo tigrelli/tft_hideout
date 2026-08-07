@@ -7,6 +7,12 @@ import { API_BASE_URL } from "@/lib/api-config";
 // CHAT-11: 토큰 스트림이 끝나면 `event: followups\ndata: [...]\n\n`가
 // 한 번(있을 때만) 더 올 수 있다. onFollowups는 선택 콜백이라 안 넘겨도
 // 기존 호출부(onToken만 쓰는 코드)는 그대로 동작한다.
+//
+// CHAT-12: 토큰 내부 개행은 `chat_stream.py`의 `build_sse_stream()`이
+// `\n` -> `\\n`으로 이스케이프해서 보낸다(원문 개행을 그대로 실으면 아래
+// "\n\n" 단위 이벤트 구분과 섞여 그 줄 이후 내용이 통째로 사라지는 문제가
+// 있었음, CHAT-12 작업결과 참고) — 토큰 데이터만 여기서 원래 문자로 되돌린다
+// (followups JSON은 이스케이프 대상이 아니라 그대로 둔다).
 export async function streamChatMessage(
   sessionId: string,
   message: string,
@@ -54,7 +60,7 @@ export async function streamChatMessage(
         }
         continue;
       }
-      onToken(data);
+      onToken(data.replace(/\\n/g, "\n"));
     }
   }
 }

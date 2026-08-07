@@ -279,9 +279,15 @@ def build_sse_stream(
     followups_fn(선택, CHAT-11): 토큰 스트림을 전부 소비한 뒤(=제너레이터
     본문이 끝까지 실행돼 result 딕셔너리가 채워진 뒤) 호출해 후속 질문
     목록을 얻는다. 목록이 비어 있으면 이벤트 자체를 보내지 않는다
-    (FollowupChips hidden, 기존 done-only 클라이언트와도 호환)."""
+    (FollowupChips hidden, 기존 done-only 클라이언트와도 호환).
+
+    CHAT-12: 토큰이 개행문자를 포함하면(CHAT-12 서식 규칙으로 답변에 `\n`이
+    들어가는 경우가 늘어남) `data: <토큰>\n\n`의 개행이 SSE 이벤트 구분자
+    `\n\n`과 섞여 `chat-stream.ts`가 첫 줄만 읽고 나머지를 통째로 잃어버리는
+    문제가 있어(2026-08-08 발견, CHAT-12 작업결과 참고) 토큰 내부 개행만
+    `\\n`으로 이스케이프해서 보낸다 — 프론트가 수신 직후 원래 문자로 되돌린다."""
     for token in token_stream:
-        yield f"data: {token}\n\n"
+        yield f"data: {token.replace(chr(10), '\\n')}\n\n"
     if followups_fn is not None:
         questions = followups_fn()
         if questions:

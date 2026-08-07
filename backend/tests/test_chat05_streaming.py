@@ -39,6 +39,20 @@ def test_build_sse_stream_emits_data_events_then_done_event() -> None:
     assert events[-1] == "event: done\ndata: [DONE]\n\n"
 
 
+# CHAT-12 발견: 토큰에 개행이 섞여 있으면(CHAT-12 서식 규칙 도입으로 흔해짐)
+# `data: <토큰>\n\n`의 원문 개행이 SSE 이벤트 구분자(`\n\n`)와 뒤섞여
+# chat-stream.ts가 그 줄 이후 내용을 통째로 잃어버리는 문제가 있었음 —
+# 토큰 내부 개행을 `\\n`으로 이스케이프해 이벤트 경계와 절대 섞이지 않게 한다.
+def test_build_sse_stream_escapes_newlines_inside_a_token() -> None:
+    def tokens():
+        yield from ["손길\n- 이즈리얼:", "아이템"]
+
+    events = list(build_sse_stream(tokens()))
+
+    assert events[0] == "data: 손길\\n- 이즈리얼:\n\n"
+    assert "\n" not in events[0].removesuffix("\n\n")
+
+
 # ---- stream_llm_answer: 재시도 + 폴백(WBS 핵심 요구사항) -------------------------
 
 
