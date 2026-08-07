@@ -75,7 +75,7 @@ export function ChatMessageList({
     <div
       role="log"
       aria-label="대화 내용"
-      className="flex-1 space-y-3 overflow-y-auto p-4"
+      className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
     >
       {messages.length === 0 && (
         <p className="text-caption text-text-tertiary">

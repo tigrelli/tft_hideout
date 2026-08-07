@@ -19,14 +19,14 @@ export function ChatFollowupChips({
   return (
     <div
       aria-label="추천 질문"
-      className="flex flex-wrap gap-2 border-t border-border-default p-3"
+      className="flex gap-2 overflow-x-auto border-t border-border-default p-3"
     >
       {questions.map((question) => (
         <button
           key={question}
           type="button"
           onClick={() => onSelect(question)}
-          className="rounded-badge border border-border-input px-2 py-1 text-label text-text-secondary"
+          className="shrink-0 whitespace-nowrap rounded-badge border border-border-input px-2 py-1 text-label text-text-secondary"
         >
           {question}
         </button>
