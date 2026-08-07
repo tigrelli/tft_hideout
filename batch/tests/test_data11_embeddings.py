@@ -176,6 +176,12 @@ def test_is_real_champion_false_for_fake_unit_suffix() -> None:
     assert is_real_champion("TFT17_DarkStar_FakeUnit", 17) is False
 
 
+def test_is_real_champion_false_for_enemy_boss_unit() -> None:
+    # 태고족 우두머리: "TFT17_Enemy_Aatrox"(현재 세트 접두어지만 아트록스 스킬을
+    # 재사용하는 별도 보스 유닛 — 5코스트로 구매 가능한 챔피언이 아님, PM 피드백)
+    assert is_real_champion("TFT17_Enemy_Aatrox", 17) is False
+
+
 # ---- HuggingFaceEmbeddingClient(mock transport) ---------------------------------
 
 

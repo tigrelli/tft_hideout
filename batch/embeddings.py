@@ -122,15 +122,21 @@ def augment_chunk_text(augment: Any) -> str:
     return f"{augment.name_kr}({augment.tier} 등급) 증강체: {augment.description}"
 
 
+_NON_CHAMPION_ID_MARKERS = ("fakeunit", "enemy")
+
+
 def is_real_champion(riot_champion_id: str, set_number: int) -> bool:
-    """Community Dragon의 세트 챔피언 목록엔 PVE/플레이스홀더 유닛도 함께
-    들어있다(2026-08-07 실측 — 골렘/협곡 바위 게/훈련 봇은 현재 세트 접두어
-    "TFT{set}_"가 아니라 접두어 없음("TFT_BlueGolem")이거나 다른(옛) 세트
-    번호("TFT9_SLIME_Crab")를 쓰고, 소형 블랙홀은 "TFT17_DarkStar_FakeUnit"
-    처럼 "FakeUnit"이 명시적으로 붙어있음). 챗봇이 "3코스트 챔피언은?" 같은
-    질문에 이런 유닛을 실제 챔피언으로 인용하지 않도록 챔피언 문서 생성
-    시 걸러낸다."""
-    if "fakeunit" in riot_champion_id.lower():
+    """Community Dragon의 세트 챔피언 목록엔 PVE/보스/플레이스홀더 유닛도
+    함께 들어있다(2026-08-07 실측 — 골렘/협곡 바위 게/훈련 봇은 현재 세트
+    접두어 "TFT{set}_"가 아니라 접두어 없음("TFT_BlueGolem")이거나 다른(옛)
+    세트 번호("TFT9_SLIME_Crab")를 쓰고, 소형 블랙홀은 "FakeUnit"이, 태고족
+    우두머리는 세트 접두어는 맞지만 "TFT17_Enemy_Aatrox"처럼 "Enemy"가
+    명시적으로 붙어있음 — 아트록스 스킬을 재사용하는 별도 보스 유닛이라
+    5코스트로 구매 가능한 챔피언이 아님, PM 피드백). 챗봇이 "3코스트
+    챔피언은?" 같은 질문에 이런 유닛을 실제 챔피언으로 인용하지 않도록
+    챔피언 문서 생성 시 걸러낸다."""
+    lowered = riot_champion_id.lower()
+    if any(marker in lowered for marker in _NON_CHAMPION_ID_MARKERS):
         return False
     return riot_champion_id.startswith(f"TFT{set_number}_")
 
