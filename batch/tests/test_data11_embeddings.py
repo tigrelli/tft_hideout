@@ -19,6 +19,7 @@ from embeddings import (
     EmbeddingError,
     HuggingFaceEmbeddingClient,
     augment_chunk_text,
+    champion_chunk_text,
     collect_chunks,
     comp_chunk_text,
     item_build_chunk_text,
@@ -52,6 +53,12 @@ class _FakeBuild:
     win_rate: float
     play_rate: float
     avg_place: float
+
+
+@dataclass
+class _FakeChampion:
+    name_kr: str
+    cost: int
 
 
 def test_comp_chunk_text_includes_core_fields_and_carry_marker() -> None:
@@ -128,6 +135,21 @@ def test_item_build_chunk_text() -> None:
 def test_item_build_chunk_text_no_op_when_item_names_empty() -> None:
     build = _FakeBuild(item_combination=[], win_rate=0.2, play_rate=0.25, avg_place=3.5)
     text = item_build_chunk_text(build, "가짜챔프", [])
+    assert "정보 없음" in text
+
+
+def test_champion_chunk_text_includes_cost_and_traits() -> None:
+    champion = _FakeChampion(name_kr="가짜챔프", cost=3)
+    text = champion_chunk_text(champion, ["학살자", "N.O.V.A."])
+
+    assert "가짜챔프" in text
+    assert "3코스트" in text
+    assert "학살자, N.O.V.A." in text
+
+
+def test_champion_chunk_text_no_op_when_traits_empty() -> None:
+    champion = _FakeChampion(name_kr="가짜챔프", cost=1)
+    text = champion_chunk_text(champion, [])
     assert "정보 없음" in text
 
 
@@ -282,9 +304,42 @@ def test_collect_chunks_builds_all_doc_types(seeded_session: Session) -> None:
     chunks = collect_chunks(seeded_session, "17.8")
     doc_types = {c["doc_type"] for c in chunks}
 
-    assert doc_types == {"comp", "playstyle", "augment", "item_build"}
+    assert doc_types == {"comp", "playstyle", "augment", "item_build", "champion"}
     comp_chunk = next(c for c in chunks if c["doc_type"] == "comp")
     assert "엑스(캐리)" in comp_chunk["content_text"]
+
+
+def test_collect_chunks_champion_includes_cost_and_traits(
+    seeded_session: Session,
+) -> None:
+    chunks = collect_chunks(seeded_session, "17.8")
+    champion_chunk = next(c for c in chunks if c["doc_type"] == "champion")
+
+    assert "엑스" in champion_chunk["content_text"]
+    assert "1코스트" in champion_chunk["content_text"]
+    assert champion_chunk["metadata"] == {"name": "엑스", "cost": 1}
+
+
+def test_collect_chunks_excludes_champions_outside_1_to_5_cost(
+    seeded_session: Session,
+) -> None:
+    seeded_session.add(
+        models.Champion(
+            patch_version="17.8",
+            riot_champion_id="TFT17_Anvil",
+            name_kr="아이템 모루",
+            name_en="ItemAnvil",
+            cost=8,
+        )
+    )
+    seeded_session.commit()
+
+    chunks = collect_chunks(seeded_session, "17.8")
+    champion_names = {
+        c["metadata"]["name"] for c in chunks if c["doc_type"] == "champion"
+    }
+
+    assert "아이템 모루" not in champion_names
 
 
 def test_collect_chunks_caps_item_build_at_top_n_by_play_rate_per_champion(

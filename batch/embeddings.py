@@ -122,6 +122,14 @@ def augment_chunk_text(augment: Any) -> str:
     return f"{augment.name_kr}({augment.tier} 등급) 증강체: {augment.description}"
 
 
+def champion_chunk_text(champion: Any, trait_names: list[str]) -> str:
+    """2026-08-07 PM 피드백: "3코스트 챔피언은?" 같은 챔피언 자체(코스트·특성)를
+    묻는 질문에 검색 문서가 아예 없어 항상 "정보 없음"으로만 답하던 문제 —
+    champions 테이블엔 이미 있는 정보를 새 doc_type("champion")으로 임베딩한다."""
+    traits = ", ".join(trait_names) if trait_names else "정보 없음"
+    return f"{champion.name_kr}({champion.cost}코스트) 챔피언. 특성: {traits}."
+
+
 def item_build_chunk_text(build: Any, champion_name: str, item_names: list[str]) -> str:
     """item_names: build.item_combination(op.gg 원본 apiName 리스트, 예:
     "TFT_Item_Deathblade")를 표시 이름으로 변환한 리스트(호출부가 items 테이블
@@ -220,6 +228,35 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
             )
         )
     }
+    # champion: "3코스트 챔피언은?" 같은 챔피언 자체(코스트·특성)를 묻는
+    # 질문에 검색 문서가 아예 없어 항상 "정보 없음"으로만 답하던 문제
+    # (2026-08-07 PM 피드백) — champions 테이블은 이미 있는데 doc_type이
+    # 없어서 못 쓰고 있었다. champions 테이블에 실제 소환 불가능한 PVE/특수
+    # 유닛(관측: 코스트 8·11)이 섞여 있어(Community Dragon 원본 이슈로 추정)
+    # 1~5코스트만 대상으로 좁힌다.
+    trait_by_champion_id: dict[int, list[str]] = {}
+    if champion_by_id:
+        for champion_id, trait_name in session.execute(
+            select(models.ChampionTrait.champion_id, models.Trait.name_kr)
+            .join(models.Trait, models.Trait.id == models.ChampionTrait.trait_id)
+            .where(models.ChampionTrait.champion_id.in_(champion_by_id.keys()))
+        ):
+            trait_by_champion_id.setdefault(champion_id, []).append(trait_name)
+    for champion in champion_by_id.values():
+        if not (1 <= champion.cost <= 5):
+            continue
+        chunks.append(
+            {
+                "doc_type": "champion",
+                "source_table": "champions",
+                "source_id": champion.id,
+                "content_text": champion_chunk_text(
+                    champion, trait_by_champion_id.get(champion.id, [])
+                ),
+                "metadata": {"name": champion.name_kr, "cost": champion.cost},
+            }
+        )
+
     # champion_item_builds는 챔피언당 수백~천 단위 조합이 쌓여있어(op.gg 원본
     # 응답 그대로 저장) 전부 임베딩하면 안 됨 — catalog.py GET /catalog/items/builds와
     # 동일하게 champion_id별 play_rate 상위 TOP_BUILDS_PER_CHAMPION개만 SQL
