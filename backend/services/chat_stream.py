@@ -36,6 +36,21 @@ FALLBACK_MESSAGE = (
 MAX_LLM_ATTEMPTS = 2
 
 
+def _build_search_query_text(
+    normalized_text: str, conversation_history: list[ChatLog]
+) -> str:
+    """검색(CHAT-02)에 넘길 텍스트를 만든다. 후속 턴 질문이 "이 챔피언들"처럼
+    직전 대화를 가리키는 대명사만 쓰면, 현재 메시지만 임베딩해서는 전혀
+    무관한 문서가 뽑히는 문제가 실제로 확인됨(2026-08-07 PM 피드백 — "이
+    챔피언들을 조합에 넣을 때 주로 사용하는 아이템은?"만 임베딩하면 직전에
+    언급한 5코스트 챔피언 9명과 무관한 챔피언들이 검색됨). 직전 봇 답변
+    하나만 현재 질문과 함께 임베딩하면 훨씬 정확해짐을 실측으로 확인 —
+    전체 이력까지 섞으면 오히려 희석되므로 바로 직전 턴만 붙인다."""
+    if not conversation_history:
+        return normalized_text
+    return f"{conversation_history[-1].answer}\n{normalized_text}"
+
+
 def stream_llm_answer(
     system_prompt: str,
     user_message: str,
@@ -129,7 +144,10 @@ def generate_answer_stream(
             return
 
     intent = classify_fn(preprocessed.normalized_text)
-    query_embedding = embed_fn(preprocessed.normalized_text)
+    search_query_text = _build_search_query_text(
+        preprocessed.normalized_text, conversation_history
+    )
+    query_embedding = embed_fn(search_query_text)
     retrieved_docs = search_fn(db, intent, patch_version, query_embedding)
 
     system_prompt = assemble_system_turn(intent)

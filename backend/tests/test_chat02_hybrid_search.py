@@ -170,6 +170,62 @@ def test_item_recommendation_only_searches_item_build(seeded_docs: Engine) -> No
     assert all(r.patch_version == "17.8" for r in results)
 
 
+def test_item_recommendation_caps_builds_per_champion_for_breadth(
+    seeded_docs: Engine,
+) -> None:
+    """2026-08-07 PM 피드백: 여러 챔피언의 아이템 빌드를 한꺼번에 물어보는
+    후속질문("이 챔피언들을 조합에 넣을 때...")에서, 순수 거리순 top-k만
+    쓰면 가장 가까운 챔피언 1명의 빌드만 여러 개 뽑히고 나머지 챔피언은
+    아예 안 뽑히는 문제가 실제로 확인됨(5코스트 9명 중 1명만 답변에 등장).
+    챔피언별로 캡을 걸어 여러 챔피언이 함께 뽑히는지 검증한다."""
+    with Session(seeded_docs) as session:
+        # 챔피언A: 쿼리와 완전히 같은 방향(최단거리)인 빌드 5개 — 캡 없으면
+        # top-k를 전부 독식함.
+        for i in range(5):
+            session.execute(
+                insert(MetaDocumentEmbedding).values(
+                    patch_version="17.8",
+                    doc_type="item_build",
+                    source_table="champion_item_builds",
+                    source_id=100 + i,
+                    content_text=f"챔피언A 빌드 {i}",
+                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                    doc_metadata={"champion": "챔피언A"},
+                )
+            )
+        # 챔피언 B/C/D: 약간 먼(직교) 빌드 1개씩 — 캡이 없으면 안 뽑힘.
+        for i, name in enumerate(["챔피언B", "챔피언C", "챔피언D"]):
+            session.execute(
+                insert(MetaDocumentEmbedding).values(
+                    patch_version="17.8",
+                    doc_type="item_build",
+                    source_table="champion_item_builds",
+                    source_id=200 + i,
+                    content_text=f"{name} 빌드",
+                    embedding=_one_hot(EMBEDDING_DIM, i + 1, 1.0),
+                    doc_metadata={"champion": name},
+                )
+            )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_ITEM_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+
+    champion_a_count = sum(
+        1 for r in results if r.doc_metadata.get("champion") == "챔피언A"
+    )
+    champions_in_results = {
+        r.doc_metadata["champion"] for r in results if "champion" in r.doc_metadata
+    }
+
+    assert champion_a_count == 2
+    assert {"챔피언B", "챔피언C", "챔피언D"}.issubset(champions_in_results)
+
+
 def test_augment_recommendation_only_searches_augment(seeded_docs: Engine) -> None:
     with Session(seeded_docs) as session:
         results = hybrid_search(

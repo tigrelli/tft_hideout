@@ -251,3 +251,73 @@ def test_normal_flow_includes_conversation_history_in_prompt(
 
     assert "[이전 대화]" in captured_prompt["user_message"]
     assert "이전 질문" in captured_prompt["user_message"]
+
+
+# ---- 검색용 임베딩 입력에 직전 대화 포함(2026-08-07 PM 피드백) -------------------
+
+
+def test_search_embedding_includes_last_bot_answer_on_followup_turn(
+    seeded_patch_session: Session,
+) -> None:
+    """후속 턴 질문이 "이 챔피언들"처럼 직전 대화를 가리키는 대명사만 쓰면,
+    현재 메시지만 임베딩해서는 무관한 문서가 뽑히는 문제가 실제로 확인됨
+    (5코스트 챔피언 9명을 물었는데 답변에 1명만 등장) — 검색용 임베딩
+    입력에 직전 봇 답변이 함께 들어가는지 확인한다."""
+    seeded_patch_session.execute(
+        insert(ChatLog).values(
+            session_id="11111111-1111-1111-1111-111111111111",
+            patch_version="17.8",
+            user_query="5코스트 챔피언은?",
+            intent=INTENT_COMP_RECOMMENDATION,
+            retrieved_doc_ids={},
+            answer="블리츠크랭크, 벡스, 바드입니다.",
+            latency_ms=100,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    seeded_patch_session.commit()
+
+    captured: dict[str, str] = {}
+
+    def fake_embed_fn(text: str) -> list[float]:
+        captured["text"] = text
+        return [0.0]
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "이 챔피언들 아이템 뭐 써야해",
+            embed_fn=fake_embed_fn,
+            classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [],
+            stream_fn=lambda sp, um: iter(["답변"]),
+        )
+    )
+
+    assert "블리츠크랭크, 벡스, 바드입니다." in captured["text"]
+    assert "이 챔피언들 아이템 뭐 써야해" in captured["text"]
+
+
+def test_search_embedding_is_just_current_message_on_first_turn(
+    seeded_patch_session: Session,
+) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_embed_fn(text: str) -> list[float]:
+        captured["text"] = text
+        return [0.0]
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "지금 메타 조합 추천해줘",
+            embed_fn=fake_embed_fn,
+            classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [],
+            stream_fn=lambda sp, um: iter(["답변"]),
+        )
+    )
+
+    assert captured["text"] == "지금 메타 조합 추천해줘"

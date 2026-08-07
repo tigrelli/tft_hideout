@@ -98,7 +98,7 @@ export function ChatMessageList({
           className={
             message.role === "user"
               ? "ml-auto max-w-[85%] rounded-bubble bg-surface-user-bubble px-3 py-2 text-body text-text-primary"
-              : "mr-auto max-w-[85%] rounded-bubble border border-border-default bg-surface-card px-3 py-2 text-body text-text-primary"
+              : "mr-auto max-w-[85%] whitespace-pre-wrap rounded-bubble border border-border-default bg-surface-card px-3 py-2 text-body text-text-primary"
           }
         >
           {message.role === "bot" && message.text === "" ? (

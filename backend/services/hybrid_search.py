@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import case, select
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session, aliased
 
 from db.models import MetaDocumentEmbedding
 from services.intent_classification import (
@@ -38,6 +38,16 @@ INTENT_DOC_TYPES: dict[str, tuple[str, ...]] = {
 # 문장이 짧아 넉넉하게 가져와도 비용 부담이 적으므로, champion만 별도의
 # 고정 top_k를 쓰고 나머지 doc_type끼리 기존 top_k를 n분의 1로 나눈다.
 GENERAL_STRATEGY_CHAMPION_TOP_K = 20
+
+# item_recommendation 후속질문("이 챔피언들을 조합에 넣을 때 주로 사용하는
+# 아이템은?")이 여러 챔피언을 한꺼번에 물어볼 수 있는데, 순수 코사인 거리
+# top-k만 쓰면 가장 가까운 챔피언 1~2명의 빌드만 여러 개 뽑히고 나머지
+# 챔피언은 아예 안 뽑히는 문제가 확인됐다(2026-08-07 PM 피드백 — 5코스트
+# 챔피언 9명을 물었는데 1명 빌드만 답변에 나옴). 챔피언별 최대
+# ITEM_BUILD_PER_CHAMPION_LIMIT개까지만 허용해 여러 챔피언에 걸쳐 고르게
+# 뽑히게 하고, 전체는 ITEM_RECOMMENDATION_TOP_K까지 가져온다.
+ITEM_RECOMMENDATION_TOP_K = 15
+ITEM_BUILD_PER_CHAMPION_LIMIT = 2
 
 # comp 청크는 embeddings.py collect_chunks()가 doc_metadata에 "tier_rank"를
 # 심어둔다(comp_rows()가 만드는 값 그대로: OP·S·A·B·C, 없으면 "unknown").
@@ -80,6 +90,8 @@ def hybrid_search(
         return _balanced_search_by_doc_type(
             session, doc_types, patch_version, query_embedding, top_k
         )
+    if intent == INTENT_ITEM_RECOMMENDATION:
+        return _balanced_item_build_search(session, patch_version, query_embedding)
     stmt = (
         select(MetaDocumentEmbedding)
         .where(
@@ -153,3 +165,36 @@ def _balanced_search_by_doc_type(
             )
         )
     return results
+
+
+def _balanced_item_build_search(
+    session: Session,
+    patch_version: str,
+    query_embedding: list[float],
+) -> list[MetaDocumentEmbedding]:
+    """doc_metadata->>'champion'으로 파티션해 챔피언별 코사인 거리 순위를
+    매기고, 챔피언당 ITEM_BUILD_PER_CHAMPION_LIMIT개까지만 남긴 뒤 전체를
+    거리순으로 다시 정렬해 ITEM_RECOMMENDATION_TOP_K개로 자른다 — 특정
+    챔피언 1~2명의 빌드가 슬롯을 독식해 다른 챔피언은 아예 안 뽑히는 문제를
+    막는다(2026-08-07 PM 피드백)."""
+    distance = MetaDocumentEmbedding.embedding.cosine_distance(query_embedding)
+    champion_rank = func.row_number().over(
+        partition_by=MetaDocumentEmbedding.doc_metadata["champion"].astext,
+        order_by=distance,
+    )
+    ranked = (
+        select(MetaDocumentEmbedding, champion_rank.label("champion_rank"))
+        .where(
+            MetaDocumentEmbedding.patch_version == patch_version,
+            MetaDocumentEmbedding.doc_type == "item_build",
+        )
+        .subquery()
+    )
+    ranked_doc = aliased(MetaDocumentEmbedding, ranked)
+    stmt = (
+        select(ranked_doc)
+        .where(ranked.c.champion_rank <= ITEM_BUILD_PER_CHAMPION_LIMIT)
+        .order_by(ranked_doc.embedding.cosine_distance(query_embedding))
+        .limit(ITEM_RECOMMENDATION_TOP_K)
+    )
+    return list(session.scalars(stmt).all())

@@ -36,7 +36,12 @@ SYSTEM_PROMPT_BASE = """너는 TFT(전략적 팀 전투) 메타 정보 전문 �
 # 방식으로 구성한다" 표 그대로
 INTENT_ADDITIONAL_INSTRUCTION: dict[str, str] = {
     INTENT_COMP_RECOMMENDATION: "티어·평균 등수·플레이 방식을 함께 제시하고, 상위 3개 이내로 압축하라.",
-    INTENT_ITEM_RECOMMENDATION: "빌드 조합과 코어 아이템 우선순위를 구분해 제시하라.",
+    INTENT_ITEM_RECOMMENDATION: (
+        "빌드 조합과 코어 아이템 우선순위를 구분해 제시하라. "
+        "[검색된 문서]에 챔피언이 여러 명 있으면 챔피언별로 줄을 바꿔 "
+        "'- 챔피언명: 아이템1, 아이템2, 아이템3' 형식의 목록으로 정리해 "
+        "한눈에 비교할 수 있게 하라."
+    ),
     INTENT_AUGMENT_RECOMMENDATION: (
         "is_legend_related=true 문서는 컨텍스트 자체에서 win_rate가 제외되어 있으니 "
         "해당 증강체의 승률은 언급하지 마라."
