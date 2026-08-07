@@ -11,11 +11,22 @@ patch_version이 바뀌었을 때만 전체 배치(정규화)를 실행해 이 �
 경우에만 이 모듈을 호출해 comps/comp_champions만 별도로 갱신한다.
 
 챔피언 이름·ID 매핑은 이미 적재된 champions 테이블을 재사용한다(Community
-Dragon을 다시 호출하지 않아 전체 배치보다 op.gg 호출 1회로 훨씬 가볍다)."""
+Dragon을 다시 호출하지 않아 전체 배치보다 op.gg 호출 1회로 훨씬 가볍다).
+
+comp+playstyle 재임베딩(2026-08-07 추가, PM 피드백): comps.name/tier_rank가
+바뀌어도(op.gg가 같은 riot_comp_id를 다른 캐리 비중으로 재명명하는 경우 —
+예: "별돌보미 자야" -> "별돌보미 리븐") `meta_document_embeddings`는 원래
+전체 배치(패치 전환)에서만 재생성돼, comps 테이블과 챗봇이 실제로 검색하는
+임베딩 인덱스가 어긋나는 사례가 실제 운영에서 확인됐다(리롤 성향 등 이미
+바뀐 수치를 챗봇이 옛 이름으로 인용). comps/comp_champions를 upsert한 직후
+comp+playstyle 청크만 다시 임베딩해 이 드리프트를 막는다 — 하루 10개
+조합×2청크 수준이라 HuggingFace 무료 티어 호출량 영향은 미미하다."""
 
 from __future__ import annotations
 
+import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -23,6 +34,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import db_session as batch_db
+from embeddings import (
+    HuggingFaceEmbeddingClient,
+    collect_comp_and_playstyle_chunks,
+    upsert_embeddings,
+)
 from normalize import (
     comp_champion_rows,
     comp_rows,
@@ -39,6 +55,7 @@ models = batch_db.models
 class CompsRefreshResult:
     comp_count: int
     deactivated_count: int
+    embedded_chunk_count: int
     duration_ms: int
 
 
@@ -48,9 +65,13 @@ def refresh_comps(
     patch_version: str,
     *,
     now: datetime | None = None,
+    embed_batch_fn: Callable[[list[str]], list[list[float]]] | None = None,
 ) -> CompsRefreshResult:
-    """op.gg 최신 메타 조합으로 comps/comp_champions를 갱신하고
-    `patch_detection_runs`에 결과를 기록한다(session.commit은 호출부 몫)."""
+    """op.gg 최신 메타 조합으로 comps/comp_champions를 갱신하고 comp+playstyle
+    청크를 재임베딩한 뒤 `patch_detection_runs`에 결과를 기록한다
+    (session.commit은 호출부 몫). embed_batch_fn을 넘기지 않으면 실제
+    HuggingFaceEmbeddingClient를 사용한다(테스트에서는 fake 주입,
+    patch_detection.run_patch_detection의 opgg_client 주입과 동일한 패턴)."""
     start = time.monotonic()
     triggered_at = now or datetime.now(UTC)
 
@@ -78,6 +99,20 @@ def refresh_comps(
             upsert_comp_champions(
                 session, comp_id, comp_champion_rows(deck), champion_ids
             )
+    session.flush()
+
+    chunks = collect_comp_and_playstyle_chunks(session, patch_version)
+    embedded_chunk_count = 0
+    if chunks:
+        texts = [c["content_text"] for c in chunks]
+        if embed_batch_fn is not None:
+            vectors = embed_batch_fn(texts)
+        else:
+            hf_key = os.environ["HUGGINGFACE_API_KEY"]
+            with HuggingFaceEmbeddingClient(api_key=hf_key) as client:
+                vectors = client.embed_batch(texts)
+        upsert_embeddings(session, patch_version, chunks, vectors)
+        embedded_chunk_count = len(chunks)
 
     duration_ms = int((time.monotonic() - start) * 1000)
     session.add(
@@ -93,5 +128,6 @@ def refresh_comps(
     return CompsRefreshResult(
         comp_count=len(comp_ids),
         deactivated_count=deactivated,
+        embedded_chunk_count=embedded_chunk_count,
         duration_ms=duration_ms,
     )

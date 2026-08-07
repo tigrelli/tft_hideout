@@ -177,7 +177,8 @@ def main() -> int:
             session.commit()
             print(
                 f"comps 주기 재수집(DATA-18): comp_count={refresh.comp_count} "
-                f"deactivated={refresh.deactivated_count}"
+                f"deactivated={refresh.deactivated_count} "
+                f"embedded_chunks={refresh.embedded_chunk_count}"
             )
         except Exception as exc:  # noqa: BLE001 - 배치 크론을 죽이지 않고 로그로만 알림
             session.rollback()

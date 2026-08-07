@@ -127,10 +127,13 @@ def item_build_chunk_text(build: Any, champion_name: str) -> str:
 # ---- DB 조회 -> chunk dict 목록 -------------------------------------------------
 
 
-def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]:
-    """해당 패치의 comps/augments/champion_item_builds를 조회해 embed 대상
-    chunk(doc_type/source_table/source_id/content_text/metadata) 목록을 만든다.
-    임베딩 벡터는 아직 없음(embed_batch로 별도 계산 후 upsert_embeddings에 전달)."""
+def collect_comp_and_playstyle_chunks(
+    session: Session, patch_version: str
+) -> list[dict[str, Any]]:
+    """comps/comp_champions만 조회해 comp+playstyle 청크를 만든다(전체 배치의
+    collect_chunks()에서 분리 — DATA-18 comps_refresh.py가 patch_version이
+    안 바뀐 날에도 comps만 가볍게 재임베딩할 수 있도록 독립 호출 가능해야
+    한다. augments/item_builds는 그 날 안 건드리므로 포함하지 않는다)."""
     chunks: list[dict[str, Any]] = []
 
     comps = session.scalars(
@@ -172,6 +175,17 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
             }
         )
 
+    return chunks
+
+
+def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]:
+    """해당 패치의 comps/augments/champion_item_builds를 조회해 embed 대상
+    chunk(doc_type/source_table/source_id/content_text/metadata) 목록을 만든다.
+    임베딩 벡터는 아직 없음(embed_batch로 별도 계산 후 upsert_embeddings에 전달)."""
+    chunks: list[dict[str, Any]] = collect_comp_and_playstyle_chunks(
+        session, patch_version
+    )
+
     augments = session.scalars(
         select(models.Augment).where(models.Augment.patch_version == patch_version)
     ).all()
@@ -186,6 +200,14 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
             }
         )
 
+    champion_by_id = {
+        c.id: c
+        for c in session.scalars(
+            select(models.Champion).where(
+                models.Champion.patch_version == patch_version
+            )
+        )
+    }
     builds = session.scalars(
         select(models.ChampionItemBuild).where(
             models.ChampionItemBuild.patch_version == patch_version
