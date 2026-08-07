@@ -33,7 +33,7 @@ CHAT-12·CHAT-13을 로컬 서버로 직접 확인하던 PM이 "무한의 대검
 
 - **batch pytest**: `test_collect_chunks_item_build_metadata_includes_item_names` 신규(item_build 청크 metadata에 `items`·`champion_id`가 채워지는지, 2차 수정으로 `champion_id` 검증 추가) — **batch 전체 106/106 통과**(무회귀), `ruff check`/`ruff format --check` 통과.
 - **backend pytest**: `test_chat13_item_grounding.py` 총 9건 — 1차(아이템 이름 인용이 경고 없이 통과 3건, 알 수 없는 이름은 여전히 경고 1건) + 2차(아이템 이름은 인용해도 링크 안 됨, 알 수 없는 이름은 여전히 링크 안 됨, `champion_id` 있으면 필터 링크·없으면 하위호환 미필터 링크, 목록 항목 맨 앞 챔피언명이 인용 없이도 링크로 보정, 보정 로직이 콜론 뒤 아이템까지 잘못 링크하지 않는지) — **backend 전체 251/251 통과**(기존 CHAT-06/07 테스트 무수정 통과로 무회귀 확인), `ruff check`/`ruff format --check` 통과.
-- **개발 DB 백필 2회 완료(2026-08-08, PM 요청)**: (1) `items` 목록 백필(630행), (2) `champion_id` 백필(630행) — 둘 다 `champion_item_builds` 조인만으로 `doc_metadata`만 UPDATE하는 1회성 스크립트(레포 미커밋, 외부 API 호출 없음, content_text·임베딩 벡터 미변경). 실제 로컬 서버로 최종 재검증: "무한의 대검 사용하는 챔피언은?" 질문에서 아이템 이름(무한의 대검)은 링크 없이 텍스트로만 표시되고, 목록의 챔피언 15명 전원이 `/items/builds?champion_id={id}` 링크로 렌더링됨(모델의 인용 누락도 2차 정규식 패스로 보정됨을 실제 응답에서 확인). 링크 클릭 → 실제로 해당 챔피언이 선택된 상태로 아이템 빌드 목록이 표시되는 것을 스크린샷으로 확인.
+- **DB 백필 2회 완료(2026-08-08, PM 요청)**: (1) `items` 목록 백필(630행), (2) `champion_id` 백필(630행) — 둘 다 `champion_item_builds` 조인만으로 `doc_metadata`만 UPDATE하는 1회성 스크립트(레포 미커밋, 외부 API 호출 없음, content_text·임베딩 벡터 미변경). 실제 로컬 서버로 최종 재검증: "무한의 대검 사용하는 챔피언은?" 질문에서 아이템 이름(무한의 대검)은 링크 없이 텍스트로만 표시되고, 목록의 챔피언 15명 전원이 `/items/builds?champion_id={id}` 링크로 렌더링됨(모델의 인용 누락도 2차 정규식 패스로 보정됨을 실제 응답에서 확인). 링크 클릭 → 실제로 해당 챔피언이 선택된 상태로 아이템 빌드 목록이 표시되는 것을 스크린샷으로 확인. **정정(PM 확인)**: 이 백필은 policies.md 12번에 명시된 대로 개발·운영 겸용 단일 Supabase DB에 실행된 것이라 곧바로 운영에도 반영됐다 — 아래·CHAT-12 문서의 "개발 Supabase DB"/"개발 DB" 표현은 부정확했다(별도 DB 없음, production API와 직접 대조해 재확인).
 
 ## PM 확인 결과
 
