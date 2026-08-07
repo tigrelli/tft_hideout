@@ -7,9 +7,10 @@ import { ChatMessageList } from "@/components/chat-widget/chat-message-list";
 import { useChatConversation } from "@/lib/use-chat-conversation";
 
 // FE-09: 화면설계서 2.7 챗봇 위젯(전역 컴포넌트, 전용 URL 없음). 데스크톱/태블릿은
-// 우하단 플로팅 패널(360×505, radius 10 — design-tokens.md), 모바일은 하단 고정
-// 바 → 탭 시 전체화면 바텀시트로 전환한다(반응형 동작 표). layout.tsx가 `main`
-// 바깥에 이 컴포넌트를 배치해 페이지 전환에도 대화 상태가 유지된다.
+// 우하단 플로팅 패널(360×600, radius 10 — design-tokens.md, 2026-08-08 PM 요청으로
+// 480~505 초기값에서 상향), 모바일은 하단 고정 바 → 탭 시 전체화면 바텀시트로
+// 전환한다(반응형 동작 표). layout.tsx가 `main` 바깥에 이 컴포넌트를 배치해
+// 페이지 전환에도 대화 상태가 유지된다.
 export function ChatWidget() {
   const [isExpanded, setIsExpanded] = useState(false);
   const { sessionId, messages, isSending, sendMessage, resetConversation } =
@@ -27,7 +28,7 @@ export function ChatWidget() {
           role="dialog"
           aria-modal="true"
           aria-label="챗봇"
-          className="fixed inset-0 z-50 flex flex-col bg-surface-card md:inset-auto md:bottom-24 md:right-6 md:h-[505px] md:w-[360px] md:rounded-bubble md:border md:border-border-default md:shadow-lg"
+          className="fixed inset-0 z-50 flex flex-col bg-surface-card md:inset-auto md:bottom-24 md:right-6 md:h-150 md:w-[360px] md:rounded-bubble md:border md:border-border-default md:shadow-lg"
         >
           <div className="flex items-center justify-between bg-primary px-4 py-3 text-text-on-brand md:rounded-t-bubble">
             <span className="text-body font-bold">TFT 챗봇</span>

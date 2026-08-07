@@ -26,7 +26,7 @@ export function ChatFollowupChips({
           key={question}
           type="button"
           onClick={() => onSelect(question)}
-          className="cursor-pointer rounded-badge border border-border-input px-2 py-1 text-label text-text-secondary"
+          className="cursor-pointer rounded-badge border border-border-input px-2 py-1 text-left text-label text-text-secondary"
         >
           {question}
         </button>
