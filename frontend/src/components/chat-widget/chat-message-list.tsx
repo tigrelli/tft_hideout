@@ -25,7 +25,7 @@ function renderAnswerText(text: string, sessionId: string): ReactNode[] {
       <Link
         key={`link-${key++}`}
         href={url}
-        className="underline"
+        className="cursor-pointer underline"
         onClick={() => {
           void postLinkClickEvent(sessionId, url);
         }}
