@@ -122,6 +122,19 @@ def augment_chunk_text(augment: Any) -> str:
     return f"{augment.name_kr}({augment.tier} 등급) 증강체: {augment.description}"
 
 
+def is_real_champion(riot_champion_id: str, set_number: int) -> bool:
+    """Community Dragon의 세트 챔피언 목록엔 PVE/플레이스홀더 유닛도 함께
+    들어있다(2026-08-07 실측 — 골렘/협곡 바위 게/훈련 봇은 현재 세트 접두어
+    "TFT{set}_"가 아니라 접두어 없음("TFT_BlueGolem")이거나 다른(옛) 세트
+    번호("TFT9_SLIME_Crab")를 쓰고, 소형 블랙홀은 "TFT17_DarkStar_FakeUnit"
+    처럼 "FakeUnit"이 명시적으로 붙어있음). 챗봇이 "3코스트 챔피언은?" 같은
+    질문에 이런 유닛을 실제 챔피언으로 인용하지 않도록 챔피언 문서 생성
+    시 걸러낸다."""
+    if "fakeunit" in riot_champion_id.lower():
+        return False
+    return riot_champion_id.startswith(f"TFT{set_number}_")
+
+
 def champion_chunk_text(champion: Any, trait_names: list[str]) -> str:
     """2026-08-07 PM 피드백: "3코스트 챔피언은?" 같은 챔피언 자체(코스트·특성)를
     묻는 질문에 검색 문서가 아예 없어 항상 "정보 없음"으로만 답하던 문제 —
@@ -232,8 +245,10 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
     # 질문에 검색 문서가 아예 없어 항상 "정보 없음"으로만 답하던 문제
     # (2026-08-07 PM 피드백) — champions 테이블은 이미 있는데 doc_type이
     # 없어서 못 쓰고 있었다. champions 테이블에 실제 소환 불가능한 PVE/특수
-    # 유닛(관측: 코스트 8·11)이 섞여 있어(Community Dragon 원본 이슈로 추정)
-    # 1~5코스트만 대상으로 좁힌다.
+    # 유닛(관측: 코스트 8·11, is_real_champion() 참고)이 섞여 있어 걸러낸다.
+    set_number = session.scalar(
+        select(models.Patch.set_number).where(models.Patch.version == patch_version)
+    )
     trait_by_champion_id: dict[int, list[str]] = {}
     if champion_by_id:
         for champion_id, trait_name in session.execute(
@@ -244,6 +259,8 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
             trait_by_champion_id.setdefault(champion_id, []).append(trait_name)
     for champion in champion_by_id.values():
         if not (1 <= champion.cost <= 5):
+            continue
+        if not is_real_champion(champion.riot_champion_id, set_number):
             continue
         chunks.append(
             {

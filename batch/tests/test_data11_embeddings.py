@@ -21,6 +21,7 @@ from embeddings import (
     augment_chunk_text,
     champion_chunk_text,
     collect_chunks,
+    is_real_champion,
     comp_chunk_text,
     item_build_chunk_text,
     playstyle_chunk_text,
@@ -151,6 +152,28 @@ def test_champion_chunk_text_no_op_when_traits_empty() -> None:
     champion = _FakeChampion(name_kr="가짜챔프", cost=1)
     text = champion_chunk_text(champion, [])
     assert "정보 없음" in text
+
+
+# ---- is_real_champion(): PVE/플레이스홀더 유닛 필터(2026-08-07 PM 피드백) -------
+
+
+def test_is_real_champion_true_for_current_set_prefix() -> None:
+    assert is_real_champion("TFT17_Akali", 17) is True
+
+
+def test_is_real_champion_false_for_no_set_prefix() -> None:
+    # 골렘: "TFT_BlueGolem"(세트 번호 없음, 실측 2026-08-07)
+    assert is_real_champion("TFT_BlueGolem", 17) is False
+
+
+def test_is_real_champion_false_for_other_set_prefix() -> None:
+    # 협곡 바위 게: "TFT9_SLIME_Crab"(다른 세트 번호가 그대로 남아있음)
+    assert is_real_champion("TFT9_SLIME_Crab", 17) is False
+
+
+def test_is_real_champion_false_for_fake_unit_suffix() -> None:
+    # 소형 블랙홀: "TFT17_DarkStar_FakeUnit"(현재 세트 접두어지만 FakeUnit 표시)
+    assert is_real_champion("TFT17_DarkStar_FakeUnit", 17) is False
 
 
 # ---- HuggingFaceEmbeddingClient(mock transport) ---------------------------------
@@ -340,6 +363,30 @@ def test_collect_chunks_excludes_champions_outside_1_to_5_cost(
     }
 
     assert "아이템 모루" not in champion_names
+
+
+def test_collect_chunks_excludes_pve_units_with_1_to_5_cost(
+    seeded_session: Session,
+) -> None:
+    """PVE 유닛(골렘 등)은 코스트가 1~5 범위 안에 들어와 위 코스트 필터만으로는
+    안 걸러진다 — apiName 패턴(is_real_champion)까지 함께 확인해야 한다."""
+    seeded_session.add(
+        models.Champion(
+            patch_version="17.8",
+            riot_champion_id="TFT_BlueGolem",
+            name_kr="골렘",
+            name_en="Golem",
+            cost=1,
+        )
+    )
+    seeded_session.commit()
+
+    chunks = collect_chunks(seeded_session, "17.8")
+    champion_names = {
+        c["metadata"]["name"] for c in chunks if c["doc_type"] == "champion"
+    }
+
+    assert "골렘" not in champion_names
 
 
 def test_collect_chunks_caps_item_build_at_top_n_by_play_rate_per_champion(
