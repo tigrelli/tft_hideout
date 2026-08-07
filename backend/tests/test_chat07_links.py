@@ -62,6 +62,19 @@ def test_item_build_mention_links_to_item_builds_list_page() -> None:
     assert "[이즈리얼](/items/builds)" in result
 
 
+def test_champion_mention_links_to_item_builds_page_filtered_by_champion() -> None:
+    """2026-08-07 PM 피드백: champion doc 인용 링크가 전부 홈("/")으로만 가서
+    어떤 챔피언인지 화면에서 다시 찾아야 했음 — 개별 상세 페이지가 없는 대신
+    /items/builds?champion_id={id}로 보내 해당 챔피언 필터가 걸린 화면으로
+    바로 연결한다."""
+    answer = "17.8 패치 기준으로 확인된 1코스트 챔피언은 '이즈리얼'입니다."
+    docs = [_doc("champion", "champions", 13, name="이즈리얼")]
+
+    result = insert_links(answer, docs)
+
+    assert "[이즈리얼](/items/builds?champion_id=13)" in result
+
+
 def test_augment_mention_links_to_augments_list_page() -> None:
     answer = "'별의 인도자' 증강체가 인기가 많습니다."
     docs = [_doc("augment", "augments", 9, name="별의 인도자")]
