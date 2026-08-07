@@ -10,7 +10,7 @@ from sqlalchemy import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db.models import ChatLog, Patch
+from db.models import ChatLog, MetaDocumentEmbedding, Patch
 from services.chat_cache import (
     compute_cache_key,
     get_cached_answer,
@@ -114,7 +114,10 @@ def test_first_turn_cache_miss_generates_and_stores(
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            # retrieved_docs가 비어 있으면 2026-08-07 변경으로 캐시되지 않으므로
+            # (근거 없는 답변은 후속질문 무의미 문제 재발 방지), 이 테스트가
+            # 검증하려는 "정상 캐시 저장" 시나리오에는 문서가 하나 이상 있어야 함.
+            search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
             stream_fn=fake_stream_fn,
         )
     )

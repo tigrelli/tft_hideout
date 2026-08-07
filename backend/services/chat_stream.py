@@ -94,9 +94,13 @@ def generate_answer_stream(
     질문 생성에 사용) — CHAT-08 캐시 히트도 포함(PM 결정 2026-08-07: 첫 턴이
     캐시에 걸렸다는 이유로 후속질문칩만 없는 게 오히려 사용자 입장에서
     일관성 없어 보인다는 피드백, Groq 호출 1회 추가를 감수). 명확화/범위밖/
-    패치없음 조기 반환과 Groq 완전 실패로 인한 폴백 메시지에는 채우지
-    않는다(LLM 부재 없이 호출측 기본값 [] 그대로 유지 = FollowupChips
-    hidden — 이 두 경우는 여전히 후속질문을 만들 실질적 내용이 없음)."""
+    패치없음 조기 반환, Groq 완전 실패로 인한 폴백 메시지, retrieved_docs가
+    빈 턴("해당 정보는 확인되지 않았다" 류 답변)에는 채우지 않는다(LLM 부재
+    없이 호출측 기본값 [] 그대로 유지 = FollowupChips hidden — 이 경우들은
+    후속질문을 만들 실질적 내용이 없거나, 근거 문서가 없어 만들어봐야
+    "그 정보 어디서 확인하나요" 류 무의미한 질문만 나옴 — 2026-08-07 PM
+    피드백). retrieved_docs가 빈 턴은 캐시도 하지 않는다(캐시되면 이후 캐시
+    히트 시에도 같은 문제가 재발하므로)."""
     preprocessed = preprocess_input(raw_message)
     if preprocessed.needs_clarification:
         yield CLARIFICATION_MESSAGE
@@ -149,8 +153,12 @@ def generate_answer_stream(
 
     # CHAT-11: Groq가 완전히 실패해 FALLBACK_MESSAGE로 대체된 답변은 후속질문
     # 생성 대상에서 제외(에러 문구를 이어서 되물을 이유가 없고, 실패한 턴에
-    # Groq 호출을 하나 더 추가하는 것도 낭비).
-    if result is not None and raw_answer != FALLBACK_MESSAGE:
+    # Groq 호출을 하나 더 추가하는 것도 낭비). retrieved_docs가 비어 검색된
+    # 내용이 전혀 없는 턴("해당 정보는 확인되지 않았다" 류 답변)도 제외한다
+    # (2026-08-07 PM 피드백: 근거 문서가 없는 답변에 대해 후속질문을 만들면
+    # "해당 정보를 어디서 확인할 수 있나요" 같이 답변 자체를 되묻는 무의미한
+    # 질문만 나옴 — 애초에 문서가 없으니 의미 있는 후속질문을 만들 재료가 없음).
+    if result is not None and raw_answer != FALLBACK_MESSAGE and retrieved_docs:
         result["answer_text"] = final_answer
 
     # CHAT-09: chat_logs 적재는 의도분류·검색·답변생성이 전부 이뤄진 정상 흐름에서만
@@ -169,8 +177,13 @@ def generate_answer_stream(
     # Groq가 완전히 실패해 FALLBACK_MESSAGE로 대체된 턴은 캐시하지 않는다
     # (캐시 키가 session_id가 아니라 질문 문장+패치 버전이라, 캐시하면 그
     # 문장을 묻는 모든 세션이 다음 패치까지 계속 폴백만 받게 됨 — CHAT-11
-    # 배포 검증 중 실제로 이 상태에 빠진 것을 발견해 2026-08-06 수정).
-    if is_first_turn and raw_answer != FALLBACK_MESSAGE:
+    # 배포 검증 중 실제로 이 상태에 빠진 것을 발견해 2026-08-06 수정). 검색된
+    # 문서가 없는("해당 정보는 확인되지 않았다" 류) 답변도 캐시하지 않는다
+    # — 캐시된 채로 남으면 이후 캐시 히트 시에도 result["answer_text"]가
+    # 채워져 후속질문 생성 대상이 되는데, 근거 문서가 없어 의미 있는
+    # 후속질문을 만들 수 없기 때문(2026-08-07 PM 피드백, 위 result 채우는
+    # 조건과 동일한 이유).
+    if is_first_turn and raw_answer != FALLBACK_MESSAGE and retrieved_docs:
         store_answer_in_cache(
             db, preprocessed.normalized_text, patch_version, final_answer
         )

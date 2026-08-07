@@ -12,8 +12,8 @@ from sqlalchemy import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db.models import Patch
-from services.chat_cache import store_answer_in_cache
+from db.models import MetaDocumentEmbedding, Patch
+from services.chat_cache import get_cached_answer, store_answer_in_cache
 from services.chat_followups import (
     MAX_FOLLOWUP_QUESTIONS,
     generate_followup_questions,
@@ -154,13 +154,45 @@ def test_result_is_populated_with_final_answer_on_normal_flow(
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
             stream_fn=fake_stream_fn,
             result=result,
         )
     )
 
     assert result["answer_text"] == "생성된 답변"
+
+
+def test_result_stays_empty_and_answer_not_cached_when_no_docs_retrieved(
+    seeded_patch_session: Session,
+) -> None:
+    """2026-08-07 PM 피드백: 검색된 문서가 없어 "해당 정보는 확인되지 않았다"
+    류로만 답한 턴은 후속질문 생성 대상에서 빠져야 한다(근거 문서가 없어
+    "그 정보 어디서 확인하나요" 같은 무의미한 후속질문만 나오던 문제) —
+    캐시도 되지 않아야 이후 캐시 히트로 같은 문제가 재발하지 않는다."""
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        yield "해당 정보는 확인되지 않았다."
+
+    result: dict[str, object] = {}
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "지금 메타 조합 추천해줘",
+            embed_fn=lambda text: [0.0],
+            classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [],
+            stream_fn=fake_stream_fn,
+            result=result,
+        )
+    )
+
+    assert result == {}
+    assert (
+        get_cached_answer(seeded_patch_session, "지금 메타 조합 추천해줘", "17.8")
+        is None
+    )
 
 
 def test_result_stays_empty_on_clarification_short_circuit(
