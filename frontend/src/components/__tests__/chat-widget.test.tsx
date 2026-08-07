@@ -69,7 +69,7 @@ describe("ChatWidget — FE-09", () => {
     render(<ChatWidget />);
 
     const mobileBar = screen.getByRole("button", {
-      name: "무엇이든 물어보세요...",
+      name: "TFT에 관한 모든 질문, AI에게 물어보세요",
     });
     expect(mobileBar.className).toContain("md:hidden");
 
@@ -79,7 +79,9 @@ describe("ChatWidget — FE-09", () => {
     expect(panel.className).toContain("fixed inset-0");
     expect(panel.className).toContain("md:inset-auto");
     expect(
-      screen.queryByRole("button", { name: "무엇이든 물어보세요..." }),
+      screen.queryByRole("button", {
+        name: "TFT에 관한 모든 질문, AI에게 물어보세요",
+      }),
     ).not.toBeInTheDocument();
   });
 

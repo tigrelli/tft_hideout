@@ -74,17 +74,22 @@ export function ChatWidget() {
       </button>
 
       {/* 모바일: collapsed 상태에서만 하단 고정 바 노출(expanded는 전체화면 시트).
-          접근성 이름은 버튼 텍스트("무엇이든 물어보세요...")를 그대로 사용해
-          위의 데스크톱 토글 버튼("챗봇 열기")과 겹치지 않게 한다. */}
+          접근성 이름은 버튼 텍스트("TFT에 관한 모든 질문, AI에게 물어보세요")를
+          그대로 사용해 위의 데스크톱 토글 버튼("챗봇 열기")과 겹치지 않게 한다.
+          원래 surface-card 배경+회색 텍스트라 카탈로그 카드들 사이에 묻혀 눈에
+          안 띈다는 PM 피드백(2026-08-07)으로 데스크톱 플로팅 버튼과 동일한
+          brand 블루(bg-primary)로 톤을 맞춰 존재감을 키움. */}
       {!isExpanded && (
         <button
           type="button"
           aria-expanded={isExpanded}
           onClick={() => setIsExpanded(true)}
-          className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t border-border-default bg-surface-card px-4 py-3 text-body text-text-tertiary md:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 bg-primary px-4 py-3 text-body font-bold text-text-on-brand shadow-lg md:hidden"
         >
-          <span aria-hidden="true">💬</span>
-          <span>무엇이든 물어보세요...</span>
+          <span aria-hidden="true" className="text-xl">
+            💬
+          </span>
+          <span>TFT에 관한 모든 질문, AI에게 물어보세요</span>
         </button>
       )}
     </>
