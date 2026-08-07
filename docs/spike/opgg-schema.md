@@ -89,9 +89,21 @@ PM이 op.gg 웹사이트(20개 이상의 조합이 스크롤 노출됨, 스크�
 
 **결론**: op.gg 웹사이트가 보여주는 20개 이상의 조합은 이 MCP 도구가 아닌 op.gg 자체 내부 데이터 소스(웹사이트 전용 API)에서 온 것으로 추정 — MCP 공개 도구와 op.gg 웹사이트 간의 데이터 범위 차이이며, 이 저장소 코드로는 고칠 수 없는 **데이터 소스 자체의 한계**(7번 랭크 필터 제거 건과 동일한 성격의 제약). 대안이 필요하면 (a) Riot 공식 API(SET-16, PUUID 발급 대기 중)로 별도 랭커 표본을 직접 수집하는 방안, (b) op.gg MCP의 다른 도구나 향후 스키마 변경을 주기적으로 재확인하는 방안 정도이며, 둘 다 신규 TASK로 PM 승인 필요. 현재는 10개가 이 데이터 소스로 확보 가능한 최대치임을 PM에게 보고.
 
+## 9. `tft_list_item_combinations` 아이템 객체에 `desc`(효과 설명) 필드가 있음 — DATA-19/CHAT-14 착수 전 확인 (2026-08-08)
+
+PM이 챗봇 답변에 아이템 효과 설명(예: "보석 건틀릿은 스킬에 치명타 판정을 부여하고...")을 포함할 수 있는지 문의. `OpggMcpClient().list_item_combinations(lang="ko_KR")`을 직접 재호출해 아이템 객체 필드를 확인한 결과 `apiName, associatedTraits, composition, desc, effects, from, icon, id, incompatibleTraits, name, tags, unique, category, org, _key, imageUrl` — **`desc` 필드가 이미 있음**(op.gg가 `"type": "cdragon-item"`이라고 밝히듯 Community Dragon 원본 그대로, `raw.communitydragon.org/latest/cdragon/tft/ko_kr.json`의 `items[]`와 동일 값으로 직접 대조 확인).
+
+- **커버리지 실측**: 완성 아이템(`composition` 2개, 71개) 중 68개(96%)는 `<br>`/`<tftitemrules>` 같은 HTML 유사 태그만 정리하면 완전한 문장(예: "정령의 형상" → "매초 잃은 체력의 2%만큼 체력 회복"). DATA-16이 증강체 설명(`clean_augment_description()`)에서 이미 만든 정리 로직을 그대로 재사용/일반화할 수 있다.
+- **미해석 참조 — 전체 838개 중 84개(10%)**: distinct 플레이스홀더 토큰을 세어보니 두 종류로 나뉜다.
+  1. `@TFTUnitProperty...@` 형태(37개 토큰, 대부분) — DATA-16이 증강체에서 이미 다뤄본 것과 동일한 "미해석 수치 템플릿" 패턴("(수치 정보 없음)" 등으로 치환).
+  2. `{{TFT_Keyword_...}}` 형태 — **정밀(Precision)/화상(Burn)/냉각(Chill)/상처(Wound) 딱 4종뿐.** 예: "보석 건틀릿" desc가 `"<TFTKeyword>정밀</TFTKeyword>을 얻습니다.<br><br>{{TFT_Keyword_Precision}}"`로 끝나 "정밀이 뭘 주는 효과인지"는 이 데이터만으론 알 수 없음(PM이 예시로 든 문장이 바로 이 케이스).
+- **키워드 글로서리는 어디에도 없음**: `CommunityDragonClient().fetch_tft_data(lang="ko_kr")` 전체 응답의 top-level 키는 `items/setData/sets`뿐이라(재확인), `{{TFT_Keyword_*}}`를 해석해줄 별도 엔드포인트가 op.gg·Community Dragon 어디에도 없다. 4종뿐이라 DATA-07(is_legend_related)과 같은 성격의 **수동 유지 사전**으로 보강하는 것이 유일한 방법(PM 승인 필요, 정확한 문구는 착수 시 함께 정함).
+- **결론**: DATA-19/CHAT-14 진행 가능. `items.description` 컬럼 + DATA-16 클렌징 로직 재사용 + 4개 키워드 수동 사전으로 대부분의 아이템에 대해 PM이 원하는 수준의 설명을 만들 수 있다.
+
 ## 다음 세션을 위한 메모
 
 - DATA-08 구현 시 이 문서의 연결 방식(세션 핸드셰이크)과 도구별 응답 구조를 그대로 fixture 스키마 근거로 사용할 것. 값은 정책(CLAUDE.md 10.2)에 따라 합성 데이터로 치환.
 - DATA-12(패치 감지)는 `tft_list_item_combinations.version` 기준으로 진행 확정(PM 승인 2026-08-04). Riot 키 확보 후 리더보드 샘플링을 보조 신호로 추가할 수도 있음 — 그때 가서 판단.
 - `tft_get_play_style`은 PGA-07로 이동 확정(PM 승인 2026-08-04, WBS.xlsx DATA-08/PGA-07 TASK 설명 갱신 완료).
 - DATA-07(is_legend_related)은 op.gg 라벨 없음 확정 — 수동 목록 방식으로 바로 착수 가능(Set 17 Legend 메커니즘 존재 여부만 별도 확인). 이 필드는 Riot TFT 개발자 정책("Legends/Legend 기반 증강체 승률 표시 금지", PRD 9-1)을 지키기 위한 것 — API-05/CHAT-06/FE-06의 승률 마스킹 대상을 가리는 플래그.
+- DATA-19(아이템 효과 설명) 착수 시 위 9번 항목 그대로 사용: `items[].desc` 정리는 DATA-16 `clean_augment_description()` 재사용, 정밀/화상/냉각/상처 4개 키워드만 수동 사전 필요(전체 재조사 불필요).
