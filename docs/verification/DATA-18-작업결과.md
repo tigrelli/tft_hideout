@@ -23,7 +23,7 @@
 > patch_version이 바뀌지 않은 상태에서도 GitHub Actions 정기 실행(수동 트리거 포함)이 op.gg 최신 메타 조합으로 comps/comp_champions를 자동 갱신하고(신규 조합 추가, DATA-17 소프트 삭제 반영), 1회성 수동 스크립트 없이도 운영 데이터가 최신 상태를 유지함을 확인
 
 - `run_patch_batch.py`의 배선 변경으로 patch_version 불변 시에도 매 실행마다 `refresh_comps()`가 호출되어 신규 조합 upsert + `mark_stale_comps_inactive`(DATA-17 소프트 삭제) 반영이 이루어짐(아래 pytest로 단위 검증).
-- **미완료 항목**: WBS 테스트 요구사항의 두 번째 항목("실제 GitHub Actions 수동 트리거로 patch_version 변경 없이 comps 테이블이 최신화되는지 스모크 확인")은 실제 운영 DB·GitHub Actions 트리거가 필요해 PM 승인 후 머지 시점에 진행 필요(DATA-14·DATA-17 때와 동일한 절차). 이번 세션에서는 로컬 pytest 단위 검증까지만 완료.
+- **스모크 테스트 완료(2026-08-07)**: main 머지 후 PM이 `patch-detection.yml`을 `workflow_dispatch`로 수동 트리거(Run #13, 27초, Success, 커밋 `7cb5aa2`). 운영 로그(`docs/logs/0_detect-and-collect.txt` 199~200행)에서 `패치 감지: triggered=False 17.8 -> 17.8` 직후 `comps 주기 재수집(DATA-18): comp_count=10 deactivated=0`을 확인 — patch_version 불변 상태에서도 comps 재수집 경로가 실제로 호출됨을 운영 환경에서 검증. 이번 실행은 op.gg 상위 10개 조합에 변동이 없어 `deactivated=0`(DATA-17 소프트 삭제 반영 자체는 pytest `test_refresh_comps_deactivates_comp_missing_from_new_response`로 별도 검증됨). 운영 API(`GET /api/v1/catalog/patches/current`)로도 patch_version이 `17.8`로 그대로임을 재확인해 "triggered=False" 전제와 일치. **WBS 테스트 요구사항 2번 충족, DATA-18 전체 종료.**
 
 ## 테스트
 
@@ -51,4 +51,3 @@ All checks passed!
 ## 남은 논의 사항
 
 - **재수집 주기**: 이번 구현은 기존 1일 1회 크론에 얹은 것으로, 별도 주기 신설은 하지 않음(PM 결정 필요 시 후속 조정 가능 — TASK 설명의 "op.gg 무료 티어 호출량 한도를 고려해 호출 주기·범위를 PM과 함께 정한다" 항목에 대한 1차 제안).
-- 머지 후 `workflow_dispatch` 수동 트리거로 patch_version 불변 상태에서 실제로 comps가 갱신되는지 운영 API로 재확인 필요(스모크 테스트, 위 "미완료 항목" 참고).
