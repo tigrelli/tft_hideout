@@ -58,7 +58,15 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "answer_relevancy_score",
         "patch_version",
     },
-    "chat_answer_cache": {"id", "cache_key", "patch_version", "answer", "created_at"},
+    "chat_answer_cache": {
+        "id",
+        "cache_key",
+        "patch_version",
+        "answer",
+        "intent",
+        "retrieved_doc_ids",
+        "created_at",
+    },
     "puuid_cache": {"id", "cache_key", "puuid", "expires_at", "created_at"},
 }
 
@@ -67,6 +75,10 @@ NULLABLE_COLUMNS: dict[str, set[str]] = {
     "match_analyses": {"matched_comp_id"},
     "link_click_events": {"chat_log_id"},
     "account_link_events": {"match_id"},
+    # intent/retrieved_doc_ids는 컬럼 도입(2026-08-07) 이전에 저장된 캐시 행에는
+    # 없으므로 nullable — 캐시 hit 시 chat_logs 로깅(CHAT-09)에서 그런 레거시
+    # 행은 None으로 감지해 로깅을 건너뛴다.
+    "chat_answer_cache": {"intent", "retrieved_doc_ids"},
 }
 
 

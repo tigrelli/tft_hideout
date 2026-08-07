@@ -310,6 +310,8 @@ class ChatAnswerCache(Base):
         String, ForeignKey("patches.version"), nullable=False
     )
     answer: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str | None] = mapped_column(String, nullable=True)
+    retrieved_doc_ids: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

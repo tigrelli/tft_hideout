@@ -8,6 +8,7 @@ import sys
 import time
 from collections.abc import Callable, Generator
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db.models import ChatLog, MetaDocumentEmbedding
@@ -51,6 +52,19 @@ def _build_search_query_text(
     if not conversation_history:
         return normalized_text
     return f"{conversation_history[-1].answer}\n{normalized_text}"
+
+
+def _load_docs_by_ids(db: Session, doc_ids: list[int]) -> list[MetaDocumentEmbedding]:
+    """캐시에 저장해둔 근거문서id로 chat_logs.retrieved_doc_ids를 채우기 위해
+    실제 문서 행을 다시 조회한다(id 목록만 저장해뒀으므로 캐시 hit 시에도
+    embedding/semantic search 없이 인덱스 조회 한 번으로 끝난다)."""
+    if not doc_ids:
+        return []
+    docs = db.scalars(
+        select(MetaDocumentEmbedding).where(MetaDocumentEmbedding.id.in_(doc_ids))
+    ).all()
+    docs_by_id = {doc.id: doc for doc in docs}
+    return [docs_by_id[doc_id] for doc_id in doc_ids if doc_id in docs_by_id]
 
 
 def stream_llm_answer(
@@ -136,13 +150,33 @@ def generate_answer_stream(
     conversation_history: list[ChatLog] = get_conversation_history(db, session_id)
     is_first_turn = len(conversation_history) == 0
     if is_first_turn:
-        cached_answer = get_cached_answer(
-            db, preprocessed.normalized_text, patch_version
-        )
-        if cached_answer is not None:
+        cached = get_cached_answer(db, preprocessed.normalized_text, patch_version)
+        if cached is not None:
             if result is not None:
-                result["answer_text"] = cached_answer
-            yield from cached_answer.split(" ")
+                result["answer_text"] = cached.answer
+            # CHAT-09: 캐시 hit 턴도 chat_logs에 남겨야 다음 턴의
+            # get_conversation_history가 이 턴을 볼 수 있다(2026-08-07
+            # 발견 — 이게 없으면 [이전 대화] 프롬프트 섹션, 문맥 임베딩
+            # (_build_search_query_text), 챔피언id 구조화 조회가 모두
+            # 이 턴을 못 보고 조용히 깨짐). intent 재계산에 classify_fn을
+            # 다시 쓰면 캐싱의 존재 이유(무료 티어 호출 절감)가 없어지므로
+            # 캐시 저장 시점에 함께 저장해둔 intent를 그대로 재사용한다.
+            # 이 컬럼이 없던 시절 저장된 레거시 캐시 행(intent=None)은
+            # 로깅을 건너뛴다 — 패치 갱신으로 곧 자연 무효화된다.
+            if cached.intent is not None:
+                record_chat_log(
+                    db,
+                    session_id=session_id,
+                    patch_version=patch_version,
+                    user_query=preprocessed.normalized_text,
+                    intent=cached.intent,
+                    retrieved_docs=_load_docs_by_ids(
+                        db, cached.retrieved_doc_ids or []
+                    ),
+                    answer=cached.answer,
+                    latency_ms=0,
+                )
+            yield from cached.answer.split(" ")
             return
 
     intent = classify_fn(preprocessed.normalized_text)
@@ -222,7 +256,12 @@ def generate_answer_stream(
     # 조건과 동일한 이유).
     if is_first_turn and raw_answer != FALLBACK_MESSAGE and retrieved_docs:
         store_answer_in_cache(
-            db, preprocessed.normalized_text, patch_version, final_answer
+            db,
+            preprocessed.normalized_text,
+            patch_version,
+            final_answer,
+            intent=intent,
+            retrieved_doc_ids=[doc.id for doc in retrieved_docs],
         )
 
     yield from final_answer.split(" ")
