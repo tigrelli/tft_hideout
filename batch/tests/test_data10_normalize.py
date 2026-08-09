@@ -25,6 +25,7 @@ from normalize import (
     comp_champion_rows,
     comp_rows,
     ensure_patch,
+    format_item_stats,
     item_rows,
     mark_stale_comps_inactive,
     replace_champion_item_builds,
@@ -348,6 +349,46 @@ def test_clean_item_description_no_op_for_plain_text() -> None:
     assert clean_item_description("매초 잃은 체력의 2%만큼 체력 회복") == (
         "매초 잃은 체력의 2%만큼 체력 회복"
     )
+
+
+# ---- DATA-20: format_item_stats() ---------------------------------------------
+# '보석 건틀릿' 실측 stats(2026-08-09, CHAT-14 PM 검증 중 발견)를 기반으로 한
+# 합성 fixture.
+
+
+def test_format_item_stats_formats_whitelisted_keys_only() -> None:
+    stats = {"AP": 35, "CritChance": 35, "CritDamageToGive": None}
+    assert format_item_stats(stats) == "주문력 +35, 치명타 확률 +35%"
+
+
+def test_format_item_stats_converts_percent_fraction_and_absorbs_float_precision_error() -> (
+    None
+):
+    """'무한의 대검' 실측: AD가 0~1 소수(부동소수점 오차 포함, float32 -> float64
+    변환 시 흔히 생기는 0.3499999940395355 형태)로 저장돼 있어 그대로 노출하면
+    "+0.3499999940395355%"처럼 깨진 문자열이 나온다(2026-08-09 백필 중 발견 —
+    같은 문제가 AttackSpeed에서도 재현돼 그 키는 화이트리스트에서 아예 제외)."""
+    stats = {"AD": 0.3499999940395355}
+    assert format_item_stats(stats) == "공격력 +35%"
+
+
+def test_format_item_stats_skips_none_and_unknown_keys() -> None:
+    stats = {
+        "Health": 300,
+        "HexRadius": 4,
+        "{cd951938}": 0.1,
+        "PercentHealthStore": 0.025,
+    }
+    assert format_item_stats(stats) == "체력 +300"
+
+
+def test_format_item_stats_returns_empty_string_when_no_whitelisted_stats() -> None:
+    assert format_item_stats({"HexRadius": 4, "Duration": 8}) == ""
+
+
+def test_format_item_stats_handles_missing_stats() -> None:
+    assert format_item_stats(None) == ""
+    assert format_item_stats({}) == ""
 
 
 def test_item_rows_includes_cleaned_description() -> None:

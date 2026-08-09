@@ -121,6 +121,60 @@ def clean_item_description(raw: str) -> str:
     return clean_augment_description(text)
 
 
+# DATA-20: items.stats는 op.gg/Community Dragon 원본 툴팁 변수를 그대로 담고 있어
+# distinct 키가 500개 이상이고(실측), 값 단위가 키마다도 다르고(정수 퍼센트/0~1
+# 소수 퍼센트/평면 수치) **같은 키 안에서도 아이템마다 단위가 섞여 있는 경우가
+# 실제로 있다**(2026-08-09 실측: `AttackSpeed`가 어떤 아이템은 0.3(=30%), 어떤
+# 아이템은 60(그 자체로 60%)로 저장되어 있어 하나의 규칙으로 변환 불가 — 이런
+# 키(`AttackSpeed`, `Omnivamp`)는 화이트리스트에서 제외한다). 전체를 그대로
+# 노출하면 단위를 알 수 없는 수치가 RAG 문서에 그대로 섞여 오답 위험이 커서,
+# 값이 아이템 전수에 걸쳐 일관된 단위임을 실측으로 확인한 핵심 스탯만
+# DATA-07(Legend 목록)·DATA-19(키워드 글로서리)와 같은 성격의 수동 유지
+# 화이트리스트로 관리한다(CHAT-14 PM 검증 중 발견, 2026-08-09 PM 결정. 문구·수치는
+# op.gg 원본 그대로라 PM 검토 필요한 초안, DATA-19와 동일 성격). unit:
+# "flat"(공격력/체력처럼 그냥 더해지는 수치, +35 형태) / "percent"(치명타 확률처럼
+# 이미 정수 퍼센트 포인트로 저장된 값, +35% 형태) /
+# "percent_fraction"(0~1 소수로 저장된 퍼센트, 0.35 -> +35% 형태로 환산).
+_ITEM_STAT_WHITELIST: dict[str, tuple[str, str]] = {
+    "AP": ("주문력", "flat"),
+    "Armor": ("방어력", "flat"),
+    "MagicResist": ("마법 저항력", "flat"),
+    "Health": ("체력", "flat"),
+    "ManaRegen": ("마나 재생", "flat"),
+    "AD": ("공격력", "percent_fraction"),
+    "CritChance": ("치명타 확률", "percent"),
+    "CritDamageToGive": ("치명타 피해", "percent"),
+    "LifeSteal": ("생명력 흡수", "percent"),
+    "DamageAmp": ("피해량 증폭", "percent_fraction"),
+}
+
+
+def _format_stat_value(value: float, unit: str) -> str:
+    if unit == "percent_fraction":
+        value = round(value * 100, 1)
+        percent = True
+    else:
+        percent = unit == "percent"
+    display = int(value) if value == int(value) else value
+    return f"+{display}%" if percent else f"+{display}"
+
+
+def format_item_stats(stats: dict[str, Any] | None) -> str:
+    """items.stats(원본 그대로)에서 화이트리스트 핵심 스탯만 "이름 +값" 형태로
+    골라 ", "로 이어붙인다. 화이트리스트에 없거나 값이 없는(None) 키는 조용히
+    건너뛴다 — 의미·단위를 확신할 수 없는 수치를 RAG 문서에 노출하지 않기
+    위함(위 주석 참고). 노출할 스탯이 하나도 없으면 빈 문자열을 반환한다."""
+    if not stats:
+        return ""
+    parts = []
+    for key, (label, unit) in _ITEM_STAT_WHITELIST.items():
+        value = stats.get(key)
+        if not isinstance(value, int | float):
+            continue
+        parts.append(f"{label} {_format_stat_value(value, unit)}")
+    return ", ".join(parts)
+
+
 # ---- 순수 변환 함수(DB 미접근, 유닛 테스트 대상) ------------------------------
 
 
