@@ -21,9 +21,11 @@ from embeddings import (
     augment_chunk_text,
     champion_chunk_text,
     collect_chunks,
+    is_charge_variant_item,
     is_real_champion,
     comp_chunk_text,
     item_build_chunk_text,
+    item_chunk_text,
     playstyle_chunk_text,
     upsert_embeddings,
 )
@@ -60,6 +62,13 @@ class _FakeBuild:
 class _FakeChampion:
     name_kr: str
     cost: int
+
+
+@dataclass
+class _FakeItem:
+    name_kr: str
+    description: str
+    stats: dict[str, object] | None = None
 
 
 def test_comp_chunk_text_includes_core_fields_and_carry_marker() -> None:
@@ -154,6 +163,37 @@ def test_champion_chunk_text_no_op_when_traits_empty() -> None:
     assert "정보 없음" in text
 
 
+def test_item_chunk_text_includes_name_and_description() -> None:
+    item = _FakeItem(name_kr="보석 건틀릿", description="치명타 확률이 증가합니다.")
+    text = item_chunk_text(item)
+    assert text == "보석 건틀릿: 치명타 확률이 증가합니다."
+
+
+def test_item_chunk_text_appends_whitelisted_stats_when_present() -> None:
+    """DATA-20(CHAT-14 PM 검증 중 발견, 2026-08-09): description만으로는
+    "치명타 확률이 얼마나 증가하나요?" 같은 수치 질문에 답할 근거가 없어
+    화이트리스트 핵심 스탯을 덧붙인다."""
+    item = _FakeItem(
+        name_kr="보석 건틀릿",
+        description="치명타 확률이 증가합니다.",
+        stats={"AP": 35, "CritChance": 35, "CritDamageToGive": None},
+    )
+    text = item_chunk_text(item)
+    assert text == (
+        "보석 건틀릿: 치명타 확률이 증가합니다. (스탯: 주문력 +35, 치명타 확률 +35%)"
+    )
+
+
+def test_item_chunk_text_no_op_when_no_whitelisted_stats() -> None:
+    item = _FakeItem(
+        name_kr="공허 건틀릿",
+        description="전투 시작: 최대 체력을 저장합니다.",
+        stats={"HexRadius": 4, "{cd951938}": 0.1},
+    )
+    text = item_chunk_text(item)
+    assert text == "공허 건틀릿: 전투 시작: 최대 체력을 저장합니다."
+
+
 # ---- is_real_champion(): PVE/플레이스홀더 유닛 필터(2026-08-07 PM 피드백) -------
 
 
@@ -180,6 +220,18 @@ def test_is_real_champion_false_for_enemy_boss_unit() -> None:
     # 태고족 우두머리: "TFT17_Enemy_Aatrox"(현재 세트 접두어지만 아트록스 스킬을
     # 재사용하는 별도 보스 유닛 — 5코스트로 구매 가능한 챔피언이 아님, PM 피드백)
     assert is_real_champion("TFT17_Enemy_Aatrox", 17) is False
+
+
+# ---- is_charge_variant_item(): 소모품 잔여 사용 횟수 변형 필터(2026-08-09 PM 제보) --
+
+
+def test_is_charge_variant_item_true_for_uses_left_variant() -> None:
+    assert is_charge_variant_item("재조합기 <rules>(8회 사용 가능!)</rules>") is True
+
+
+def test_is_charge_variant_item_false_for_plain_name() -> None:
+    assert is_charge_variant_item("재조합기") is False
+    assert is_charge_variant_item("보석 건틀릿") is False
 
 
 # ---- HuggingFaceEmbeddingClient(mock transport) ---------------------------------
@@ -325,6 +377,51 @@ def seeded_session(migrated_engine: Engine) -> Session:
                 win_rate=0.2,
             )
         )
+        # CHAT-14: description이 있는 아이템만 "item" doc_type으로 임베딩되는지
+        # 확인하기 위해 있음/없음 두 케이스를 함께 시딩(item_combination의 "A"와
+        # 겹치지 않는 별도 riot_item_id 사용 — CHAT-13 테스트의 "items == ['A']"
+        # 스냅샷에 영향 없게 함).
+        session.add(
+            models.Item(
+                patch_version="17.8",
+                riot_item_id="TFT_Item_B",
+                name_kr="가짜아이템",
+                name_en="FakeItem",
+                item_type="core",
+                components=[],
+                stats={},
+                description="가짜 아이템 효과 설명",
+            )
+        )
+        session.add(
+            models.Item(
+                patch_version="17.8",
+                riot_item_id="TFT_Item_NoDesc",
+                name_kr="설명없는아이템",
+                name_en="NoDescItem",
+                item_type="core",
+                components=[],
+                stats={},
+                description=None,
+            )
+        )
+        # 2026-08-09 PM 제보: op.gg 원본이 소모품(재조합기 등)을 "N회 사용 가능"
+        # 잔여 횟수별 별도 아이템 행으로 중복 제공해(name_kr에 <rules> 태그 그대로
+        # 포함), 이걸 그대로 임베딩하면 LLM이 같은 패치 안에 공존하는 변형들을
+        # 서로 다른 시점으로 착각해 허구의 "패치 변경" 답변을 만든 실제 사례가
+        # 있었다 — description은 있지만 제외돼야 하는 케이스를 함께 시딩.
+        session.add(
+            models.Item(
+                patch_version="17.8",
+                riot_item_id="TFT_Consumable_ItemReroller_UsesLeft8",
+                name_kr="재조합기 <rules>(8회 사용 가능!)</rules>",
+                name_en="Item Reroller",
+                item_type="consumable",
+                components=[],
+                stats={},
+                description="챔피언이 장착한 모든 아이템을 해제하고 변경합니다.",
+            )
+        )
         session.commit()
         yield session
 
@@ -333,9 +430,39 @@ def test_collect_chunks_builds_all_doc_types(seeded_session: Session) -> None:
     chunks = collect_chunks(seeded_session, "17.8")
     doc_types = {c["doc_type"] for c in chunks}
 
-    assert doc_types == {"comp", "playstyle", "augment", "item_build", "champion"}
+    assert doc_types == {
+        "comp",
+        "playstyle",
+        "augment",
+        "item_build",
+        "champion",
+        "item",
+    }
     comp_chunk = next(c for c in chunks if c["doc_type"] == "comp")
     assert "엑스(캐리)" in comp_chunk["content_text"]
+
+
+# CHAT-14: description이 있는 아이템만 "item" doc_type으로 임베딩되는지 확인.
+def test_collect_chunks_item_doc_type_only_for_items_with_description(
+    seeded_session: Session,
+) -> None:
+    chunks = collect_chunks(seeded_session, "17.8")
+    item_chunks = [c for c in chunks if c["doc_type"] == "item"]
+
+    assert len(item_chunks) == 1
+    assert item_chunks[0]["metadata"] == {"name": "가짜아이템"}
+    assert item_chunks[0]["content_text"] == "가짜아이템: 가짜 아이템 효과 설명"
+    assert item_chunks[0]["source_table"] == "items"
+
+
+def test_collect_chunks_excludes_charge_variant_items(seeded_session: Session) -> None:
+    """2026-08-09 PM 제보: "재조합기 <rules>(8회 사용 가능!)</rules>"처럼 잔여
+    사용 횟수 변형은 description이 있어도 "item" doc_type에서 빠져야 한다(허구의
+    패치 변경 답변을 유발한 실제 원인, is_charge_variant_item 참고)."""
+    chunks = collect_chunks(seeded_session, "17.8")
+    item_names = {c["metadata"]["name"] for c in chunks if c["doc_type"] == "item"}
+
+    assert "재조합기 <rules>(8회 사용 가능!)</rules>" not in item_names
 
 
 # CHAT-13: item_build 문서 metadata에 아이템 이름 목록이 있어야 챗봇 백엔드의

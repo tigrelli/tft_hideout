@@ -50,6 +50,13 @@ def _link_target(doc: MetaDocumentEmbedding) -> str:
 def _name_to_url(retrieved_docs: list[MetaDocumentEmbedding]) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for doc in retrieved_docs:
+        if doc.doc_type == "item":
+            # CHAT-14: item 문서도 champion/comp처럼 doc_metadata에 "name" 키를
+            # 쓰지만(collect_chunks 참고), 아이템 이름은 CHAT-13 PM 피드백대로
+            # 절대 링크 대상이 아니다(개별 상세 페이지가 없어 클릭해도 챔피언
+            # 선택 없이 목록 페이지로만 가 혼란만 준다) — _known_names()의
+            # 근거검증 인식용으로만 쓰이고 여기서는 건너뛴다.
+            continue
         metadata = doc.doc_metadata or {}
         name = metadata.get("name")
         if name and name not in mapping:

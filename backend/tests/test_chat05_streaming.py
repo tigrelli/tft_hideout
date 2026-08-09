@@ -231,6 +231,66 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
     assert "티어" in calls["system_prompt"]  # 조합 추천 의도별 추가지시 포함
 
 
+# CHAT-15 2차 보정(2026-08-09 PM 검증 중 발견): search_fn이 거리 임계값을 통과한
+# item/augment 문서를 반환하더라도, 이름이 질의 문자열과 거의 안 겹치면
+# generate_answer_stream 단계에서 한 번 더 걸러져야 한다("광폭검 효과는?"이
+# '포악한 절단검'과 거리만으로는 통과하던 실제 사례).
+class _FakeItemDoc:
+    def __init__(self, name: str, content_text: str) -> None:
+        self.doc_type = "item"
+        self.doc_metadata = {"name": name}
+        self.content_text = content_text
+        self.id = 1
+
+
+def test_item_doc_with_no_name_overlap_is_dropped_from_prompt(
+    seeded_patch_session: Session,
+) -> None:
+    doc = _FakeItemDoc("포악한 절단검", "포악한 절단검: 기본 공격 시 광역 피해")
+    captured: dict[str, str] = {}
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        captured["user_message"] = user_message
+        yield "안녕"
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "광폭검 효과는?",
+            embed_fn=lambda text: [0.1, 0.2],
+            classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [doc],
+            stream_fn=fake_stream_fn,
+        )
+    )
+    assert "포악한 절단검" not in captured["user_message"]
+
+
+def test_item_doc_with_name_overlap_is_kept_in_prompt(
+    seeded_patch_session: Session,
+) -> None:
+    doc = _FakeItemDoc("보석 건틀릿", "보석 건틀릿: 치명타 확률이 증가합니다.")
+    captured: dict[str, str] = {}
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        captured["user_message"] = user_message
+        yield "안녕"
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "33333333-3333-3333-3333-333333333333",
+            "보석 건틀릿 효과는?",
+            embed_fn=lambda text: [0.1, 0.2],
+            classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [doc],
+            stream_fn=fake_stream_fn,
+        )
+    )
+    assert "보석 건틀릿" in captured["user_message"]
+
+
 def test_normal_flow_includes_conversation_history_in_prompt(
     seeded_patch_session: Session,
 ) -> None:

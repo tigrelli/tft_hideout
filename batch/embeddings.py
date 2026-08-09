@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 import db_session as batch_db
+from normalize import format_item_stats
 
 models = batch_db.models
 
@@ -149,6 +150,37 @@ def champion_chunk_text(champion: Any, trait_names: list[str]) -> str:
     return f"{champion.name_kr}({champion.cost}코스트) 챔피언. 특성: {traits}."
 
 
+def item_chunk_text(item: Any) -> str:
+    """CHAT-14: DATA-19가 채운 items.description을 새 doc_type("item")으로
+    임베딩해, 아이템 효과 자체를 묻는 질문("보석 건틀릿 효과가 뭐야?")에
+    답할 근거 문서를 마련한다(champion doc_type과 동일 패턴, 2026-08-07 신설분
+    참고). DATA-20: description은 정성적 설명뿐이라 "치명타 확률이 얼마나
+    증가하나요?" 같은 수치 질문에 항상 "정보 없음"으로만 답하던 문제(CHAT-14
+    PM 검증 중 발견) — items.stats의 화이트리스트 핵심 스탯을 덧붙여 근거
+    문서에 실제 수치가 포함되게 한다. 화이트리스트에 해당하는 값이 하나도
+    없으면(스탯 자체가 없거나 전부 어빌리티 변수인 아이템) 기존 문장 그대로
+    유지한다."""
+    stats_text = format_item_stats(item.stats)
+    if not stats_text:
+        return f"{item.name_kr}: {item.description}"
+    return f"{item.name_kr}: {item.description} (스탯: {stats_text})"
+
+
+def is_charge_variant_item(name_kr: str) -> bool:
+    """PM 실사용 검증 중 발견(2026-08-09): op.gg/Community Dragon 원본이 '재조합기'
+    ·'자석 제거기'·'그웬의 가위' 같은 소모품을 "N회 사용 가능" 잔여 횟수별로
+    별도 아이템 행 9~10개씩(예: `name_kr`가 "재조합기 <rules>(8회 사용 가능!)</rules>")
+    만들어둔다 — 실제로는 같은 아이템의 잔여 사용 횟수 상태일 뿐 서로 다른
+    아이템이 아닌데, 이걸 그대로 "item" doc_type으로 임베딩하면 같은 패치 안에
+    공존하는 여러 변형(8회/7회 등)을 LLM이 서로 다른 시점의 데이터로 착각해
+    "17.8 패치에서 사용 횟수가 8회에서 7회로 바뀌었다" 같은 완전한 허구를
+    만들어내는 실제 사례가 확인됨(패치 변경이력 자체를 이 서비스가 갖고 있지
+    않은데도, 공존하는 변형들을 비교해 그럴듯한 오답을 만든 것). 태그 없는
+    기본 행(예: "재조합기")이 이미 같은 설명을 담고 있어 정보 손실 없이
+    제외 가능하다."""
+    return "<rules>" in name_kr
+
+
 def item_build_chunk_text(build: Any, champion_name: str, item_names: list[str]) -> str:
     """item_names: build.item_combination(op.gg 원본 apiName 리스트, 예:
     "TFT_Item_Deathblade")를 표시 이름으로 변환한 리스트(호출부가 items 테이블
@@ -277,6 +309,29 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
                     champion, trait_by_champion_id.get(champion.id, [])
                 ),
                 "metadata": {"name": champion.name_kr, "cost": champion.cost},
+            }
+        )
+
+    # CHAT-14: DATA-19가 채운 description이 있는 아이템만 "item" doc_type으로
+    # 임베딩한다(설명이 없으면 근거 없는 빈 문서만 늘리는 셈이라 제외). 2026-08-09:
+    # "N회 사용 가능" 잔여 횟수 변형(is_charge_variant_item)도 같은 이유로 제외
+    # (위 함수 docstring 참고 — 허구의 "패치 변경" 답변을 유발한 실제 원인).
+    for item in session.scalars(
+        select(models.Item).where(
+            models.Item.patch_version == patch_version,
+            models.Item.description.isnot(None),
+            models.Item.description != "",
+        )
+    ):
+        if is_charge_variant_item(item.name_kr):
+            continue
+        chunks.append(
+            {
+                "doc_type": "item",
+                "source_table": "items",
+                "source_id": item.id,
+                "content_text": item_chunk_text(item),
+                "metadata": {"name": item.name_kr},
             }
         )
 

@@ -18,7 +18,10 @@ from services.chat_logging import record_chat_log
 from services.chat_postprocessing import postprocess_answer
 from services.chat_preprocessing import get_conversation_history, preprocess_input
 from services.current_patch import get_current_patch_version
-from services.hybrid_search import lookup_item_builds_by_champion_ids
+from services.hybrid_search import (
+    filter_by_name_overlap,
+    lookup_item_builds_by_champion_ids,
+)
 from services.intent_classification import INTENT_ITEM_RECOMMENDATION
 from services.prompt_assembly import assemble_system_turn, assemble_user_turn
 
@@ -37,6 +40,21 @@ FALLBACK_MESSAGE = (
 )
 
 MAX_LLM_ATTEMPTS = 2
+
+# CHAT-14: retrieved_docs가 있어도(문서는 검색됐지만) 질문이 원하는 세부 수치·항목이
+# 그 안에 없어 시스템 프롬프트 1번 규칙대로 "정보가 확인되지 않았다"류로 답한 턴은
+# 후속질문을 만들어봐야 같은 정보를 더 정확히 알려달라는 무의미한 질문만 나온다
+# (2026-08-09 PM 피드백 — "보석 건틀릿 치명타 얼마나 증가?" 질문에서 재현). 기존
+# retrieved_docs 빈값 체크(아래)만으로는 이 경우를 못 걸러 별도 체크 추가. 모델이
+# 규칙 1의 문구를 그대로 재현하지 않고 어미(다/습니다)를 바꿔 표현하는 경우가 실제로
+# 관찰돼("확인되지 않았습니다", "제공되지 않았습니다") 어간 단위로 매칭한다 —
+# 결정론적 백스톱이라 새로운 표현으로 파라프레이즈되면 놓칠 수 있어, chat_followups.py
+# 프롬프트 지시(1차 방어)와 이중으로 둔다.
+_NO_GROUNDED_INFO_MARKERS = ("확인되지 않았", "제공되지 않았", "정보가 없", "정보는 없")
+
+
+def _looks_like_no_info_answer(answer_text: str) -> bool:
+    return any(marker in answer_text for marker in _NO_GROUNDED_INFO_MARKERS)
 
 
 def _build_search_query_text(
@@ -124,7 +142,13 @@ def generate_answer_stream(
     result["answer_text"]를 담아둔다(호출측이 스트림을 전부 소비한 뒤 후속
     질문 생성에 사용) — CHAT-08 캐시 히트도 포함(PM 결정 2026-08-07: 첫 턴이
     캐시에 걸렸다는 이유로 후속질문칩만 없는 게 오히려 사용자 입장에서
-    일관성 없어 보인다는 피드백, Groq 호출 1회 추가를 감수). 명확화/범위밖/
+    일관성 없어 보인다는 피드백, Groq 호출 1회 추가를 감수). answer_text가
+    채워질 때 result["retrieved_doc_types"](set[str])도 함께 채운다 — CHAT-14
+    2차 수정(2026-08-09): comp/playstyle 문서에만 조합이 강한 "이유"를 설명하는
+    playstyle_text가 있고, champion/item_build 등 다른 doc_type은 수치·목록만
+    있어 "왜 승률이 높은가" 같은 원인 분석 질문에 답할 재료가 아예 없다 — 후속
+    질문 생성(chat_followups.generate_followup_questions)이 이 여부에 따라
+    원인 분석형 후속 질문을 제안할지 판단하는 데 쓴다. 명확화/범위밖/
     패치없음 조기 반환, Groq 완전 실패로 인한 폴백 메시지, retrieved_docs가
     빈 턴("해당 정보는 확인되지 않았다" 류 답변)에는 채우지 않는다(LLM 부재
     없이 호출측 기본값 [] 그대로 유지 = FollowupChips hidden — 이 경우들은
@@ -152,8 +176,10 @@ def generate_answer_stream(
     if is_first_turn:
         cached = get_cached_answer(db, preprocessed.normalized_text, patch_version)
         if cached is not None:
+            cached_docs = _load_docs_by_ids(db, cached.retrieved_doc_ids or [])
             if result is not None:
                 result["answer_text"] = cached.answer
+                result["retrieved_doc_types"] = {doc.doc_type for doc in cached_docs}
             # CHAT-09: 캐시 hit 턴도 chat_logs에 남겨야 다음 턴의
             # get_conversation_history가 이 턴을 볼 수 있다(2026-08-07
             # 발견 — 이게 없으면 [이전 대화] 프롬프트 섹션, 문맥 임베딩
@@ -170,9 +196,7 @@ def generate_answer_stream(
                     patch_version=patch_version,
                     user_query=preprocessed.normalized_text,
                     intent=cached.intent,
-                    retrieved_docs=_load_docs_by_ids(
-                        db, cached.retrieved_doc_ids or []
-                    ),
+                    retrieved_docs=cached_docs,
                     answer=cached.answer,
                     latency_ms=0,
                 )
@@ -202,6 +226,12 @@ def generate_answer_stream(
         )
         query_embedding = embed_fn(search_query_text)
         retrieved_docs = search_fn(db, intent, patch_version, query_embedding)
+        # CHAT-15 2차 보정: 거리 임계값만으로는 못 거르는 회색지대("광폭검
+        # 효과는?"이 '포악한 절단검'과 거리 0.49로 우연히 통과, 2026-08-09
+        # PM 검증 중 발견)를 이름 문자 겹침 비율로 추가 방어(hybrid_search.py
+        # 참고). search_fn이 이미 patch_version/doc_type/거리 필터를 마쳤으므로
+        # 여기서는 item/augment만 한 번 더 거른다.
+        retrieved_docs = filter_by_name_overlap(retrieved_docs, search_query_text)
 
     system_prompt = assemble_system_turn(intent)
     user_prompt = assemble_user_turn(
@@ -229,8 +259,17 @@ def generate_answer_stream(
     # (2026-08-07 PM 피드백: 근거 문서가 없는 답변에 대해 후속질문을 만들면
     # "해당 정보를 어디서 확인할 수 있나요" 같이 답변 자체를 되묻는 무의미한
     # 질문만 나옴 — 애초에 문서가 없으니 의미 있는 후속질문을 만들 재료가 없음).
-    if result is not None and raw_answer != FALLBACK_MESSAGE and retrieved_docs:
+    # CHAT-14: retrieved_docs가 있어도(문서는 찾았지만) 답변 자체가 "정보가
+    # 확인되지 않았다"류면 마찬가지로 제외한다(위 _looks_like_no_info_answer,
+    # 2026-08-09 PM 피드백).
+    if (
+        result is not None
+        and raw_answer != FALLBACK_MESSAGE
+        and retrieved_docs
+        and not _looks_like_no_info_answer(raw_answer)
+    ):
         result["answer_text"] = final_answer
+        result["retrieved_doc_types"] = {doc.doc_type for doc in retrieved_docs}
 
     # CHAT-09: chat_logs 적재는 의도분류·검색·답변생성이 전부 이뤄진 정상 흐름에서만
     # 수행(명확화/범위밖/패치없음 조기 반환은 intent·patch_version이 없어 대상 아님).

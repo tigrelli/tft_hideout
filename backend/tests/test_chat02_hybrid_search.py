@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 
 from db.models import EMBEDDING_DIM, Champion, MetaDocumentEmbedding, Patch
 from services.embedding_client import EmbeddingError, HuggingFaceEmbeddingClient
-from services.hybrid_search import hybrid_search, lookup_item_builds_by_champion_ids
+from services.hybrid_search import (
+    filter_by_name_overlap,
+    hybrid_search,
+    lookup_item_builds_by_champion_ids,
+)
 from services.intent_classification import (
     INTENT_AUGMENT_RECOMMENDATION,
     INTENT_COMP_RECOMMENDATION,
@@ -226,6 +230,34 @@ def test_item_recommendation_caps_builds_per_champion_for_breadth(
     assert {"챔피언B", "챔피언C", "챔피언D"}.issubset(champions_in_results)
 
 
+# CHAT-14: 아이템 효과 자체를 묻는 질문("보석 건틀릿 아이템 효과 알려줘")에
+# 답할 수 있도록 item_recommendation이 item_build와 함께 item(DATA-19 description
+# 기반) 문서도 검색하는지 확인.
+def test_item_recommendation_also_searches_item_doc_type(seeded_docs: Engine) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="item",
+                source_table="items",
+                source_id=1,
+                content_text="보석 건틀릿: 치명타 확률이 증가합니다.",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                doc_metadata={"name": "보석 건틀릿"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_ITEM_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "item" in {r.doc_type for r in results}
+    assert "item_build" in {r.doc_type for r in results}
+
+
 def test_augment_recommendation_only_searches_augment(seeded_docs: Engine) -> None:
     with Session(seeded_docs) as session:
         results = hybrid_search(
@@ -277,6 +309,249 @@ def test_general_strategy_includes_champion_doc_type(seeded_docs: Engine) -> Non
             _one_hot(EMBEDDING_DIM, 0, 1.0),
         )
     assert "champion" in {r.doc_type for r in results}
+
+
+# CHAT-14: "보석 건틀릿 효과가 뭐야?"처럼 "아이템" 키워드 없이 묻는 질문은
+# item_recommendation이 아니라 general_strategy로 분류되므로(intent_
+# classification.py의 키워드 정규식 기준) 여기서도 item 문서를 찾을 수 있어야 함.
+def test_general_strategy_includes_item_doc_type(seeded_docs: Engine) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="item",
+                source_table="items",
+                source_id=1,
+                content_text="보석 건틀릿: 치명타 확률이 증가합니다.",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                doc_metadata={"name": "보석 건틀릿"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "item" in {r.doc_type for r in results}
+
+
+# ---- CHAT-15: 검색 결과 최소 유사도 신뢰도 임계값(2026-08-09 PM 제보) -------------
+# "죽무 효과는?"처럼 사전에 없는 줄임말이 전혀 다른 아이템('절멸자')으로
+# 오검색된 사례 — item/augment doc_type은 코사인 거리가 임계값(_DOC_TYPE_
+# MAX_DISTANCE)을 넘으면(=너무 멀면) 애초에 후보에서 빠져야 한다. champion/comp는
+# 실측상 정상 케이스도 거리가 멀 수 있어(설계 주석 참고) 의도적으로 임계값을
+# 적용하지 않는다 — 회귀 확인용 테스트도 함께 둔다.
+
+
+def test_item_recommendation_excludes_item_doc_too_far_from_query(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="item",
+                source_table="items",
+                source_id=99,
+                content_text="먼 아이템 문서",
+                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),  # 질의와 직교(거리 1.0)
+                doc_metadata={"name": "먼아이템"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_ITEM_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "item" not in {r.doc_type for r in results}
+
+
+def test_general_strategy_excludes_item_doc_too_far_from_query(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="item",
+                source_table="items",
+                source_id=99,
+                content_text="먼 아이템 문서",
+                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
+                doc_metadata={"name": "먼아이템"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "item" not in {r.doc_type for r in results}
+
+
+def test_augment_recommendation_excludes_augment_doc_too_far_from_query(
+    seeded_docs: Engine,
+) -> None:
+    """base seeded_docs의 augment 문서는 질의와 거리 0(포함돼야 함), 여기서
+    추가하는 문서는 직교(거리 1.0, 제외돼야 함) — 같은 doc_type 안에서
+    가까운/먼 문서가 실제로 갈리는지 확인한다."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="augment",
+                source_table="augments",
+                source_id=99,
+                content_text="먼 증강체 문서",
+                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
+                doc_metadata={"name": "먼증강체"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_AUGMENT_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    names = {r.doc_metadata.get("name") for r in results}
+    assert "먼증강체" not in names
+    assert len(results) == 1  # base fixture의 가까운 augment 문서 1개만 남음
+
+
+def test_item_recommendation_returns_no_item_docs_when_all_too_far(
+    seeded_docs: Engine,
+) -> None:
+    """item doc_type 후보가 전부 임계값 밖이면 에러 없이 빈 결과여야 한다
+    (item_build 결과는 별개 경로라 영향 없음, 이 경우 전체 흐름은 CHAT-14의
+    "정보 없음" 답변 경로로 자연스럽게 이어진다)."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="item",
+                source_table="items",
+                source_id=99,
+                content_text="먼 아이템 문서",
+                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
+                doc_metadata={"name": "먼아이템"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_ITEM_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert results  # item_build 결과는 남아있음(임계값 미적용 doc_type)
+    assert "item" not in {r.doc_type for r in results}
+
+
+def test_general_strategy_still_includes_far_champion_doc(
+    seeded_docs: Engine,
+) -> None:
+    """champion doc_type은 CHAT-15 임계값을 의도적으로 적용하지 않는다(실측:
+    정상적인 특정 챔피언 이름 질의도 거리 0.5대라 item의 "나쁜 매칭" 구간과
+    겹침, 위 hybrid_search 모듈 주석 참고) — 먼 champion 문서도 그대로 남아야
+    회귀가 아니다."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="champion",
+                source_table="champions",
+                source_id=1,
+                content_text="먼챔프(3코스트) 챔피언. 특성: 학살자.",
+                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),  # 직교(거리 1.0)
+                doc_metadata={"name": "먼챔프", "cost": 3},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_GENERAL_STRATEGY,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "먼챔프" in {
+        r.doc_metadata.get("name") for r in results if r.doc_type == "champion"
+    }
+
+
+def test_comp_recommendation_still_includes_far_comp_doc(seeded_docs: Engine) -> None:
+    """comp doc_type도 CHAT-15 임계값을 의도적으로 적용하지 않는다(실측: 특정
+    조합명이 아닌 일반 "메타 추천" 질의가 정상인데도 거리 0.48~0.49로 나옴)."""
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=99,
+                content_text="먼 조합 문서",
+                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
+                doc_metadata={"name": "먼조합"},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_COMP_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+        )
+    assert "먼조합" in {
+        r.doc_metadata.get("name") for r in results if r.doc_type == "comp"
+    }
+
+
+# ---- CHAT-15 2차 보정: filter_by_name_overlap() (2026-08-09 PM 검증 중 발견) ------
+# 거리 임계값 회색지대(0.45~0.55)를 문자 겹침 비율로 추가 방어. 실측 사례
+# 재현: "광폭검 효과는?"(존재하지 않는 아이템)이 '포악한 절단검'과 거리 0.49로
+# 임계값(0.5)은 통과했지만 이름 글자는 '검' 1개만 겹침(6개 중 1개, 비율 0.167).
+
+
+class _FakeDoc:
+    def __init__(self, doc_type: str, name: str) -> None:
+        self.doc_type = doc_type
+        self.doc_metadata = {"name": name}
+
+
+def test_filter_by_name_overlap_keeps_item_when_name_fully_present_in_query() -> None:
+    docs = [_FakeDoc("item", "보석 건틀릿")]
+    assert filter_by_name_overlap(docs, "보석 건틀릿 효과는?") == docs
+
+
+def test_filter_by_name_overlap_drops_item_when_name_barely_overlaps_query() -> None:
+    """실측 재현: '포악한 절단검'과 "광폭검 효과는?"은 '검' 1글자만 겹침(비율
+    0.167, 기준 0.5 미달)."""
+    docs = [_FakeDoc("item", "포악한 절단검")]
+    assert filter_by_name_overlap(docs, "광폭검 효과는?") == []
+
+
+def test_filter_by_name_overlap_ignores_doc_types_outside_item_and_augment() -> None:
+    docs = [_FakeDoc("comp", "전혀 안 겹치는 조합명"), _FakeDoc("champion", "무관챔프")]
+    assert filter_by_name_overlap(docs, "지금 메타 조합 추천해줘") == docs
+
+
+def test_filter_by_name_overlap_applies_to_augment_too() -> None:
+    docs = [_FakeDoc("augment", "동물특공대 지휘관")]
+    assert filter_by_name_overlap(docs, "동물특공대 지휘관 효과는?") == docs
+    assert filter_by_name_overlap(docs, "전혀 무관한 질문") == []
 
 
 def test_general_strategy_champion_allocation_ignores_top_k(
@@ -402,15 +677,16 @@ def test_general_strategy_guarantees_comp_representation_even_when_augments_are_
 def test_general_strategy_allocates_remainder_to_earlier_doc_types_first(
     seeded_docs: Engine,
 ) -> None:
-    """top_k가 doc_type 개수(4)로 나누어떨어지지 않으면(기본 5), 나머지는
-    INTENT_DOC_TYPES 순서상 앞쪽 타입(comp)부터 1개씩 더 배정된다."""
+    """top_k가 champion 제외 doc_type 개수(CHAT-14로 5: comp/playstyle/augment/
+    item_build/item)로 나누어떨어지지 않으면, 나머지는 INTENT_DOC_TYPES 순서상
+    앞쪽 타입(comp)부터 1개씩 더 배정된다."""
     with Session(seeded_docs) as session:
         results = hybrid_search(
             session,
             INTENT_GENERAL_STRATEGY,
             "17.8",
             _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=5,
+            top_k=6,
         )
     comp_count = sum(1 for r in results if r.doc_type == "comp")
     # fixture에는 comp 문서가 1개뿐이라 배정된 2개 중 실제로는 1개만 반환됨

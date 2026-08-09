@@ -97,7 +97,12 @@ def post_chat_message(
         answer_text = stream_result.get("answer_text")
         if not isinstance(answer_text, str):
             return []
-        return generate_followup_questions(answer_text, call_groq_chat)
+        doc_types = stream_result.get("retrieved_doc_types")
+        return generate_followup_questions(
+            answer_text,
+            call_groq_chat,
+            retrieved_doc_types=doc_types if isinstance(doc_types, set) else None,
+        )
 
     return StreamingResponse(
         build_sse_stream(token_stream, followups_fn=followups_fn),

@@ -84,6 +84,57 @@ def test_generate_followup_questions_returns_empty_list_when_llm_has_nothing_to_
     assert generate_followup_questions("답변", llm_call) == []
 
 
+# ---- CHAT-14 2차 수정(2026-08-09): 원인 분석형 후속 질문 억제 -------------------
+# PM 실사용 제보: "블리츠크랭크와 바드가 높은 승률을 보인 이유는?"처럼 답할 수
+# 없는 원인 분석 질문이 후속질문으로 제안된 적이 있음(직전 답변이 item_build
+# 문서 — 승률 수치만 있고 이유를 설명하는 문서가 아니었음). comp/playstyle
+# 문서(플레이 스타일 설명 있음)에서 나온 답변에는 이 규칙을 붙이지 않는다.
+
+
+def test_generate_followup_questions_adds_no_reasoning_rule_when_no_narrative_docs() -> (
+    None
+):
+    captured: dict[str, str] = {}
+
+    def llm_call(system_prompt: str, user_message: str, *, max_tokens: int) -> str:
+        captured["system_prompt"] = system_prompt
+        return "질문"
+
+    generate_followup_questions(
+        "답변", llm_call, retrieved_doc_types={"item_build", "champion"}
+    )
+
+    assert "원인·이유를" in captured["system_prompt"]
+
+
+def test_generate_followup_questions_omits_no_reasoning_rule_when_comp_doc_present() -> (
+    None
+):
+    captured: dict[str, str] = {}
+
+    def llm_call(system_prompt: str, user_message: str, *, max_tokens: int) -> str:
+        captured["system_prompt"] = system_prompt
+        return "질문"
+
+    generate_followup_questions("답변", llm_call, retrieved_doc_types={"comp"})
+
+    assert "원인·이유를" not in captured["system_prompt"]
+
+
+def test_generate_followup_questions_defaults_to_no_reasoning_rule_when_doc_types_omitted() -> (
+    None
+):
+    captured: dict[str, str] = {}
+
+    def llm_call(system_prompt: str, user_message: str, *, max_tokens: int) -> str:
+        captured["system_prompt"] = system_prompt
+        return "질문"
+
+    generate_followup_questions("답변", llm_call)
+
+    assert "원인·이유를" in captured["system_prompt"]
+
+
 # ---- build_sse_stream followups_fn 배선 -----------------------------------------
 
 
@@ -162,6 +213,36 @@ def test_result_is_populated_with_final_answer_on_normal_flow(
     assert result["answer_text"] == "생성된 답변"
 
 
+def test_result_carries_retrieved_doc_types_for_followup_context(
+    seeded_patch_session: Session,
+) -> None:
+    """CHAT-14 2차 수정(2026-08-09): chat_followups가 원인 분석형 후속 질문을
+    걸러낼지 판단할 수 있도록 result에 doc_type 집합도 함께 담는다."""
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        yield "생성된 답변"
+
+    docs = [
+        MetaDocumentEmbedding(doc_type="comp"),
+        MetaDocumentEmbedding(doc_type="playstyle"),
+    ]
+    result: dict[str, object] = {}
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "지금 메타 조합 추천해줘",
+            embed_fn=lambda text: [0.0],
+            classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: docs,
+            stream_fn=fake_stream_fn,
+            result=result,
+        )
+    )
+
+    assert result["retrieved_doc_types"] == {"comp", "playstyle"}
+
+
 def test_result_stays_empty_and_answer_not_cached_when_no_docs_retrieved(
     seeded_patch_session: Session,
 ) -> None:
@@ -192,6 +273,39 @@ def test_result_stays_empty_and_answer_not_cached_when_no_docs_retrieved(
         get_cached_answer(seeded_patch_session, "지금 메타 조합 추천해줘", "17.8")
         is None
     )
+
+
+def test_result_stays_empty_but_answer_still_cached_when_docs_found_but_answer_says_no_info(
+    seeded_patch_session: Session,
+) -> None:
+    """2026-08-09 PM 피드백: retrieved_docs는 찾았지만(예: 아이템 문서는 검색됨)
+    질문이 원하는 세부 수치가 그 안에 없어 "정보가 제공되지 않았습니다"류로 답한
+    턴은, 문서가 아예 없던 기존 케이스와 달리 근거 문서 자체는 있으므로 캐시는
+    그대로 되어야 한다(동일 질문 재사용 가능) — 다만 후속질문 생성 대상에서는
+    빠져야 한다(같은 정보를 더 정확히 알려달라는 무의미한 후속질문 방지). 모델이
+    시스템 프롬프트 1번 규칙 문구를 그대로 재현하지 않고 어미를 바꿔("확인되지
+    않았다" 대신 "제공되지 않았습니다") 답하는 경우까지 커버되는지 확인한다."""
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        yield "치명타 확률이 증가하지만 정확한 수치는 제공되지 않았습니다."
+
+    question = "보석 건틀릿을 장착하면 어떤 챔피언의 치명타 확률이 가장 많이 증가해?"
+    result: dict[str, object] = {}
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            question,
+            embed_fn=lambda text: [0.0],
+            classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
+            search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
+            stream_fn=fake_stream_fn,
+            result=result,
+        )
+    )
+
+    assert result == {}
+    assert get_cached_answer(seeded_patch_session, question, "17.8") is not None
 
 
 def test_result_stays_empty_on_clarification_short_circuit(
@@ -237,6 +351,10 @@ def test_result_is_populated_on_cache_hit(seeded_patch_session: Session) -> None
     # 사용자 입장에서 일관성 없어 보인다는 피드백 — Groq 호출 1회를 감수하고
     # 캐시 히트에도 후속질문을 생성하도록 변경(레이트리밋 절감보다 UX 우선).
     assert result["answer_text"] == "캐시된 답변"
+    # CHAT-14 2차 수정(2026-08-09): 캐시 히트 경로도 retrieved_doc_types를 채워야
+    # chat_followups가 원인 분석형 후속 질문 억제 여부를 판단할 수 있다(이 테스트의
+    # 캐시 행은 retrieved_doc_ids가 없어 빈 집합이지만, 키 자체는 항상 존재해야 함).
+    assert result["retrieved_doc_types"] == set()
 
 
 def test_result_stays_empty_when_groq_fully_fails(
