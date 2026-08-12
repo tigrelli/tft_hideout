@@ -50,6 +50,15 @@ CLAUDE.md 10.2절 정책에 따라 이런 실제 배포/시크릿 확인은 CI�
 - PM 결정: 유료 전환(GitHub Pro, 월 $4) 없이 **소프트 게이트로 운영** — CI 실패 표시(빨간 X)는 PM이 머지 전 참고하는 신호로만 쓰고, 실제 머지 차단은 기존 워크플로우 규칙("PM 승인 후에만 커밋/머지")으로 대신함. 저장소가 향후 Public 전환(REL-05)되거나 GitHub Pro로 업그레이드되면 동일 규칙이 자동으로 강제되기 시작하니 별도 재작업 불필요
 - 더미 테스트 제거 커밋 push 후 동일 PR에서 `backend-tests`/`frontend-tests` 모두 통과(초록 체크)로 전환되는지 PM 확인 예정
 
+## SET-17 (2026-08-12)
+
+- Tavily 계정 발급(용도: Coding & development), 무료 티어(월 1,000크레딧 매월 갱신) 확인
+- `.env`에 `TAVILY_API_KEY` 등록, `.env.example`에 키 항목 추가(값 없이)
+- 로컬에서 `POST https://api.tavily.com/search` 1회 실호출(`query="TFT Set 18 release date"`) → 200 응답, 검색 결과 3건 정상 수신(실제 뉴스/공식 페이지 URL 포함) 확인
+- GitHub Secrets: PM이 저장소 시크릿에 `TAVILY_API_KEY` 등록 확인(대시보드 스크린샷으로 확인, 값 미노출)
+- Render: PM이 `tft-hideout-backend` 서비스 환경변수에 `TAVILY_API_KEY` 등록 완료(대시보드 등록만, 라이브 엔드포인트 검증은 아직 안 함)
+- **라이브 엔드포인트 검증 보류**: SET-09처럼 `/env-check`에 `tavily_api_key_set` 필드를 추가해 Render 반영을 실측 확인하는 절차는, 지금 push하면 CHAT-16·존댓말 수정과 배치 커밋하려는 계획과 어긋나 CHAT-17(실제 배포가 필요한 시점) 때 함께 진행하기로 PM과 합의(2026-08-12)
+
 ## 운영 인시던트 — Render 환경변수 누락 + CHAT-08 캐시 오염 (2026-08-06)
 
 CHAT-11(후속질문 동적 생성) 배포 후 스모크 체크 중 발견. 상세 진단 과정·근본 원인·수정 내역은 `docs/verification/CHAT-11-작업결과.md`의 "배포 후 스모크 체크 결과" 절 참고. 여기서는 인프라 사실만 요약:
