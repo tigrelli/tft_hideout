@@ -20,7 +20,7 @@
 | GET | `/api/v1/catalog/items/builds?champion_id=&patch=` | 아이템 빌드 조회 | API-04 |
 | GET | `/api/v1/catalog/augments?patch=&tier=` | 증강체 목록 조회(Legend 마스킹 포함) | API-05 |
 | GET | `/api/v1/catalog/patches/current` | 현재 패치 정보 조회 | API-06 |
-| POST | `/api/v1/chat/message` | 챗봇 메시지 전송(SSE 스트리밍, `event: followups` 포함) | API-09, CHAT-01~11 |
+| POST | `/api/v1/chat/message` | 챗봇 메시지 전송(SSE 스트리밍, `event: followups` 포함) | API-09, CHAT-01~18 |
 | POST | `/api/v1/chat/events/link-click` | 챗봇→웹사이트 링크 클릭 전환율 계측 | CHAT-07, FE-09 |
 | GET | `/api/v1/chat/session/{session_id}/history` | 대화 이력 조회(drill-down용, 최근 3턴) | API-10 |
 | POST | `/api/v1/analysis/link` | Riot ID → PUUID 변환(TTL 1시간 캐시) | API-11 |
@@ -43,3 +43,4 @@
 | Community Dragon(`raw.communitydragon.org/latest/cdragon/tft/{lang}.json`) | 배치(보조 신호) | ID↔이름 매핑. 공식 "TFT DDragon" 분리 엔드포인트는 2026-08-04 기준 미확인(DATA-06 스파이크, Set 18 런칭 2026-08-12 이후 재확인 필요) — 대안으로 Community Dragon 사용, op.gg 응답의 `type: "cdragon-item"`과 세트 식별자(`mutator`/`teamCode` "TFTSet17")가 일치함을 확인 |
 | Groq API | 실시간(SSE 스트리밍) | sLLM 추론(Llama 3.3 70B) |
 | Hugging Face Inference API | 배치+실시간 | 임베딩(BGE-M3, 1024차원). 레거시 `api-inference.huggingface.co`는 DNS부터 안 뜸(2026-08-04 확인) — 신규 엔드포인트 `https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction` 사용(`inputs`에 문자열 리스트 전달 시 항상 `list[list[float]]` 응답) |
+| Tavily Search API(`https://api.tavily.com/search`) | 실시간(챗봇 `general_game_info` 의도 전용) | 웹 검색(SET-17). `POST`에 `api_key`/`query`/`max_results` 전달, 응답 `results[].{title,url,content}`. 무료 티어 월 1,000크레딧(매월 갱신). 실패 시 재시도 없이 즉시 FALLBACK_MESSAGE 폴백(CHAT-17) |

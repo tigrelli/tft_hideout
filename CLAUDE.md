@@ -86,6 +86,7 @@
 | LLM 추론 | Groq API 무료 티어 · Llama 3.3 70B Versatile |
 | 임베딩 | BGE-M3 (Hugging Face Inference API) |
 | RAG 프레임워크 | LangChain (Python) |
+| 웹 검색 API | Tavily 무료 티어(월 1,000크레딧, 매월 갱신) — 내부 RAG(comps/item_builds/augments/comp_champions 등)로 답할 수 없는 "일반 게임 정보" 질문(시즌 일정 등) 전용 5번째 챗봇 의도(`general_game_info`)의 근거 소스, CHAT-16~18에서 신설(v1.11) |
 | 배치 스케줄러 | GitHub Actions (패치 감지 폴링 + 배치 워커) |
 | KPI 대시보드 | 자체 구현 페이지(`/kpi`, 비밀번호 게이트, GNB 미노출) + 백엔드 집계 API — Metabase는 Render 무료 플랜(512MB) OOM으로 배포 불가해 v1.8에서 대체(이전 계획: Metabase, Render 2번째 서비스) |
 | RAG 품질 평가 | RAGAS (주간 배치) |
@@ -223,3 +224,4 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.8 | 2026-08-03 | PM 요청 반영 — 4장 워크플로우에 6번 "작업결과 기록" 신설(기존 6·7번을 7·8번으로, 다음 TASK 이동을 9번으로 재조정): 모든 완료 TASK는 PM에게 제시한 결과 요약을 `docs/verification/{WBS코드}-작업결과.md`로 저장해 다음 세션이 설계 판단·구현 근거를 재조사하지 않고 참고·수정할 수 있게 한다. smoke-tests.md는 SET-* 인프라 1회성 검증 전용으로 계속 유지. 1장·5장에 경로 설명 반영 |
 | v1.9 | 2026-08-04 | PM 결정 반영 — SET-12(Figma MCP 연동) 취소. 세션 환경에 Figma MCP 커넥터가 연결되어 있지 않아 DoD(`get_design_context` 호출 성공)를 검증할 수 없었고, PM이 Figma를 사용하지 않기로 결정. 6장을 "Figma는 참조하지 않는다"로 갱신(디자인 소스를 design-tokens.md·화면설계서 2개로 축소), 2.3절 FE-* 참조표에서 Figma MCP 제거. FE-01 선행TASK에서 SET-12 제거(SET-07만 남음) — 진행현황.md·WBS.xlsx 동시 반영, 취소 3개(SET-05·SET-11·SET-12)로 갱신 |
 | v1.10 | 2026-08-04 | PM 결정 반영 — TASK마다 새 브랜치를 만드는 방식이 비효율적이라는 PM 피드백에 따라 4장 브랜치 규칙 변경: TASK 1개당 브랜치 1개 방식을 폐기하고, 여러 TASK를 하나의 작업 브랜치에 순서대로 커밋(TASK 단위 분리는 유지)한 뒤 PM과 합의한 배치 시점에 `main`으로 한 번에 PR 머지하는 방식으로 전환. `develop` 브랜치는 미사용 명시(실제로도 초기 이후 사용되지 않았음). 8번 워크플로우 문구 갱신 |
+| v1.11 | 2026-08-12 | PM 요청 반영 — 챗봇이 "시즌 종료는 언제?"처럼 TFT 관련이지만 내부 RAG로는 답할 수 없는 질문에 웹 검색으로 답할 수 있는지 문의 → 스코프 검토 후 CHAT-16(오프토픽 판별 2차 LLM 검증)·SET-17(Tavily API 키 발급)·CHAT-17(웹검색 기반 5번째 의도 `general_game_info` 신설)·CHAT-18(CHAT-17 실사용 검증 중 발견한 비활성 조합 근거검증·랭킹 정합성 버그 수정) 순으로 구현·완료. 3장 기술스택 표에 "웹 검색 API"(Tavily) 행 신규 추가. `docs/reference/glossary.md`의 "챗봇 의도 분류"를 4종→5종으로, `docs/reference/api-spec.md` 외부 연동 표에 Tavily 행 추가, `docs/reference/policies.md`에 14번(웹 검색 근거 원칙) 신설(모두 이 버전과 함께 갱신). 전체 113개 TASK로 갱신(신규 4개: SET-17·CHAT-16·CHAT-17·CHAT-18) |

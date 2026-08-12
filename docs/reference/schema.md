@@ -13,7 +13,7 @@
 | `champion_traits` | champion_id, trait_id | 챔피언-특성 매핑(junction) |
 | `items` | id, patch_version, name_kr, name_en, item_type, riot_item_id, components(jsonb), stats(jsonb) | `riot_item_id`는 Match-V1 조인용 필수 외부키 |
 | `augments` | id, patch_version, name_kr, name_en, tier, description, **is_legend_related**, riot_augment_id | `is_legend_related=true`면 win_rate 웹사이트·챗봇 양쪽에서 마스킹 필수 |
-| `comps` | id, patch_version, name, tier_rank, rank_tier, avg_place, play_rate, win_rate(nullable), playstyle_text, updated_at | 메타 조합. `rank_tier`는 API-02 구현 중 PRD의 "랭크별 필터" 요구사항에 맞춰 추가(기본값 "all") — 실제 op.gg 랭크 구간 값은 DATA-05 스파이크 완료 후 재확정 필요 |
+| `comps` | id, patch_version, name, tier_rank, rank_tier, avg_place, play_rate, win_rate(nullable), playstyle_text, **is_active**, updated_at | 메타 조합. `rank_tier`는 API-02 구현 중 PRD의 "랭크별 필터" 요구사항에 맞춰 추가(기본값 "all") — 실제 op.gg 랭크 구간 값은 DATA-05 스파이크 완료 후 재확정 필요. `is_active`(기본 true, DATA-17)는 op.gg 상위 10위 밖으로 밀려난 조합의 소프트 삭제 플래그 — 하드 삭제하면 comp_champions/comp_augments/match_analyses.matched_comp_id/meta_document_embeddings 참조가 끊겨 플래그만 끔(사이트 티어리스트는 API-02가 필터, 챗봇 RAG는 CHAT-18이 랭킹 후순위+캐비엇으로 처리) |
 | `comp_champions` | comp_id, champion_id, is_carry, recommended_items(jsonb) | 조합-챔피언 매핑, 캐리 가중치 계산(PGA-04)의 기준 |
 | `comp_augments` | comp_id, augment_id, priority | 조합-증강체 매핑 |
 | `champion_item_builds` | id, champion_id, patch_version, item_combination(jsonb), play_rate, avg_place, win_rate | 챔피언별 아이템 빌드 |

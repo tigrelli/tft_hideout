@@ -12,16 +12,18 @@
 | 패치(patch) | TFT 밸런스 업데이트 단위(약 2주 주기). 모든 레코드에 `patch_version` 태깅 |
 | Personal Key | Riot API 키 단계. 심사 없이 발급, 레이트리밋 Development Key와 동일(상향 불가), 개인/소규모 비공개 커뮤니티 용도 |
 | op.gg MCP | 메타 데이터(조합/아이템/증강체/빌드)의 1차이자 유일한 소스. TFT 도구 6종 중 5종은 집계·메타 전용(개인 전적 조회 없음), 나머지 1종(`tft_get_play_style`)은 Riot PUUID가 필요한 개인화 도구라 PGA-07(코칭 문장 생성)에서만 사용(DATA-05 스파이크 확인, 2026-08-04) |
+| Tavily | 웹 검색 API(SET-17). 무료 티어 월 1,000크레딧, 매월 갱신(카드 등록 불요). 내부 RAG로 답할 수 없는 "일반 게임 정보" 질문(시즌 일정 등) 전용 5번째 챗봇 의도(`general_game_info`, CHAT-17)의 유일한 근거 소스 — 내부 DB 테이블은 검색하지 않음 |
 | MVP | 이 프로젝트 범위 = 개인/비상업 목적, 본인+지인 약 10명 |
 
-## 챗봇 의도 분류 (4종, 고정)
+## 챗봇 의도 분류 (5종, 2026-08-12 CHAT-16~17에서 5번째 신설 — 원본 PRD/요구사항정의서는 4종까지만 정의)
 
 1. 조합 추천 — 검색 대상: comps, comp_champions, comp_augments
 2. 아이템 추천 — 검색 대상: champion_item_builds
 3. 증강체 추천 — 검색 대상: augments, comp_augments (is_legend_related=true는 win_rate 컨텍스트 제외)
 4. 일반 전략 질문 — comps+augments+item_builds 통합 검색
+5. 일반 게임 정보(`general_game_info`, CHAT-17 신설) — 위 4종 내부 RAG로 답할 수 없는 질문(시즌 일정·공식 이벤트 등) 전용. 검색 대상은 내부 DB가 아니라 Tavily 웹 검색(SET-17) — `policies.md` 14번(웹 검색 근거 원칙) 참고. 1~4번과 근거 형식이 근본적으로 달라 시스템 프롬프트도 별도(`WEB_SEARCH_SYSTEM_PROMPT`)
 
-1차 키워드/정규식 매칭 → 애매할 때만 2차 Groq LLM 분류.
+1차 키워드/정규식 매칭 → 애매할 때만 2차 Groq LLM 분류. 5번은 키워드로 사전 나열하기 어려운 잔여 카테고리라 1차 키워드 매칭 대상에 없고, 2차 LLM 분류로만 도달한다(`intent_classification.py` 참고). 오프토픽 판별(CHAT-04 `is_off_topic`)도 CHAT-16에서 동일하게 "1차 키워드 → 애매하면 2차 LLM" 패턴으로 확장돼, 5번 의도가 필요한 질문이 키워드 미스만으로 조기 차단되지 않게 됐다.
 
 ### 의도별 "무엇이 좋은가" 랭킹 시그널 (2026-08-07 PM 결정)
 
@@ -29,13 +31,15 @@
 
 | 의도 | 랭킹 시그널 | 검색(`hybrid_search.py`) | 프롬프트(`prompt_assembly.py`) |
 |---|---|---|---|
-| 조합 추천 | `comps.tier_rank`(OP>S>A>B>C) | ✅ 1차 정렬 기준(2026-08-07) | ✅ "티어·평균등수 제시, 상위 3개 압축" |
+| 조합 추천 | `comps.is_active`(활성 우선) → `comps.tier_rank`(OP>S>A>B>C) | ✅ `is_active` 1차·`tier_rank` 2차 정렬 기준(tier_rank는 2026-08-07, is_active는 2026-08-12 CHAT-18 추가) | ✅ "티어·평균등수 제시, 상위 3개 압축" + 비활성 조합은 캐비엇 필수(SYSTEM_PROMPT_BASE 11번, CHAT-18) |
 | 일반 전략 질문 | 〃(comp 문서 재사용) | ✅ 〃 | ✅ "메타 질문이면 OP>S>A 우선 언급"(2026-08-07) |
 | 아이템 추천 | `champion_item_builds.win_rate`(존재함) | ❌ 미반영(순수 임베딩 거리) | ❌ 정렬 지시 없음 |
 | 증강체 추천 | 없음 — `augments.tier`는 강함이 아니라 드랍 확률 등급(gold/silver/prism), 승률 데이터 자체가 미수집 | - | is_legend_related 승률 비노출 규칙만 있음(정렬 규칙 아님, policies.md 1번) |
+| 일반 게임 정보(CHAT-17) | 내부 DB 랭킹 시그널 자체가 없음 — Tavily 검색 결과 자체 관련도 순서를 그대로 사용 | 해당 없음(내부 검색 미사용) | 출처 URL 필수 명시, 완곡한 표현(WEB_SEARCH_SYSTEM_PROMPT) |
 
 - **아이템 추천**: 조합 추천과 동일한 패턴(성능 지표는 DB에 있는데 검색·프롬프트 둘 다 미반영)이라 같은 방식으로 고칠 수 있음 — 2026-08-07 PM이 우선순위상 보류, 착수 전 아님.
 - **증강체 추천**: 애초에 "어느 증강체가 더 좋은지" 판단할 지표 자체가 DB에 없어 지금은 고칠 방법이 없음. 하려면 op.gg에서 증강체별 승률을 신규 수집해야 하는 별도 DATA-* TASK 필요(스파이크부터).
+- **`comps.is_active`(DATA-17 소프트 삭제 플래그)**: op.gg 상위 10위 밖으로 밀려난 조합도 챗봇 인용 보존을 위해 RAG 코퍼스엔 남겨두지만, 통계가 그 시점 이후 갱신되지 않고 얼어붙는다 — 얼어붙은 옛 tier_rank가 활성 조합보다 랭킹에서 앞서는 왜곡이 실제로 있었음(CHAT-18, 2026-08-12 PM 제보). `comp`/`playstyle` doc_type에만 적용(다른 doc_type엔 `is_active` 메타데이터 자체가 없음).
 
 ## 반응형 브레이크포인트 (전체 서비스 공통)
 
