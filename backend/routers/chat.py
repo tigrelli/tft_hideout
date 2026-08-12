@@ -20,6 +20,7 @@ from services.groq_client import call_groq_chat, stream_groq_chat
 from services.hybrid_search import hybrid_search
 from services.intent_classification import classify_intent_for_query
 from services.kpi_events import record_link_click
+from services.web_search import search_web
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -89,6 +90,7 @@ def post_chat_message(
         classify_fn=classify_intent_for_query,
         search_fn=hybrid_search,
         stream_fn=stream_groq_chat,
+        web_search_fn=search_web,
         result=stream_result,
     )
 

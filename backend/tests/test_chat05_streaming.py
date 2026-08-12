@@ -131,6 +131,7 @@ def test_needs_clarification_short_circuits_without_calling_pipeline(
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
+                web_search_fn=lambda text: [],
                 stream_fn=_fail_if_called("stream_fn"),
             )
         )
@@ -150,6 +151,7 @@ def test_off_topic_short_circuits_without_calling_pipeline(
                 offtopic_confirm_fn=lambda text: True,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
+                web_search_fn=lambda text: [],
                 stream_fn=_fail_if_called("stream_fn"),
             )
         )
@@ -174,6 +176,7 @@ def test_off_topic_keyword_miss_but_llm_confirms_on_topic_continues_pipeline(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_STRATEGY,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -191,6 +194,7 @@ def test_no_current_patch_returns_fixed_message(migrated_engine: Engine) -> None
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
+                web_search_fn=lambda text: [],
                 stream_fn=_fail_if_called("stream_fn"),
             )
         )
@@ -247,6 +251,7 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=fake_classify_fn,
             search_fn=fake_search_fn,
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -291,6 +296,7 @@ def test_item_doc_with_no_name_overlap_is_dropped_from_prompt(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [doc],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -316,6 +322,7 @@ def test_item_doc_with_name_overlap_is_kept_in_prompt(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [doc],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -354,6 +361,7 @@ def test_normal_flow_includes_conversation_history_in_prompt(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -401,6 +409,7 @@ def test_search_embedding_includes_last_bot_answer_on_followup_turn(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=lambda sp, um: iter(["답변"]),
         )
     )
@@ -427,6 +436,7 @@ def test_search_embedding_is_just_current_message_on_first_turn(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=lambda sp, um: iter(["답변"]),
         )
     )
@@ -491,6 +501,7 @@ def test_item_recommendation_followup_bypasses_embed_and_search_via_structured_l
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda text: [],
             stream_fn=lambda sp, um: iter(["답변"]),
         )
     )
@@ -532,6 +543,7 @@ def test_item_recommendation_followup_without_champion_links_falls_back_to_searc
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=fake_search_fn,
+            web_search_fn=lambda text: [],
             stream_fn=lambda sp, um: iter(["답변"]),
         )
     )

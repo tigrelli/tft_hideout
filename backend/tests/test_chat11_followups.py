@@ -206,6 +206,7 @@ def test_result_is_populated_with_final_answer_on_normal_flow(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
             result=result,
         )
@@ -237,6 +238,7 @@ def test_result_carries_retrieved_doc_types_for_followup_context(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: docs,
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
             result=result,
         )
@@ -266,6 +268,7 @@ def test_result_stays_empty_and_answer_not_cached_when_no_docs_retrieved(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
             result=result,
         )
@@ -303,6 +306,7 @@ def test_result_stays_empty_but_answer_still_cached_when_docs_found_but_answer_s
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
             result=result,
         )
@@ -326,6 +330,7 @@ def test_result_stays_empty_on_clarification_short_circuit(
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called,
                 search_fn=_fail_if_called,
+                web_search_fn=lambda text: [],
                 stream_fn=_fail_if_called,
                 result=result,
             )
@@ -348,6 +353,7 @@ def test_result_is_populated_on_cache_hit(seeded_patch_session: Session) -> None
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called,
             search_fn=_fail_if_called,
+            web_search_fn=lambda text: [],
             stream_fn=_fail_if_called,
             result=result,
         )
@@ -380,6 +386,7 @@ def test_result_stays_empty_when_groq_fully_fails(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=always_failing_stream_fn,
             result=result,
         )
@@ -406,6 +413,7 @@ def test_generate_answer_stream_without_result_kwarg_still_works(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )

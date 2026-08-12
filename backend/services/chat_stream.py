@@ -22,8 +22,17 @@ from services.hybrid_search import (
     filter_by_name_overlap,
     lookup_item_builds_by_champion_ids,
 )
-from services.intent_classification import INTENT_ITEM_RECOMMENDATION
-from services.prompt_assembly import assemble_system_turn, assemble_user_turn
+from services.intent_classification import (
+    INTENT_GENERAL_GAME_INFO,
+    INTENT_ITEM_RECOMMENDATION,
+)
+from services.prompt_assembly import (
+    assemble_system_turn,
+    assemble_user_turn,
+    assemble_web_search_system_turn,
+    assemble_web_search_user_turn,
+)
+from services.web_search import WebSearchResult, verify_web_citation
 
 CLARIFICATION_MESSAGE = (
     "질문을 조금 더 구체적으로 입력해주시겠어요? 예: '지금 메타에서 강한 조합 추천해줘'"
@@ -122,6 +131,62 @@ def stream_llm_answer(
             return
 
 
+def _generate_web_search_answer(
+    db: Session,
+    *,
+    session_id: str,
+    patch_version: str,
+    normalized_text: str,
+    search_query_text: str,
+    conversation_history: list[ChatLog],
+    wrapped_text: str,
+    web_search_fn: Callable[[str], list[WebSearchResult]],
+    stream_fn: Callable[[str, str], Generator[str, None, None]],
+) -> Generator[str, None, None]:
+    """CHAT-17: general_game_info 의도 전용 답변 생성. 내부 RAG(CHAT-02) 대신
+    Tavily 웹 검색을 근거로 쓴다. 웹 검색 결과는 meta_document_embeddings에
+    없어(캐시·후속질문이 참조하는 retrieved_doc_ids 대상이 아님) CHAT-08 캐시·
+    CHAT-11 후속질문 result 사이드채널은 이번 범위에서 지원하지 않는다."""
+    try:
+        web_results = web_search_fn(search_query_text)
+    except Exception:  # noqa: BLE001 — Tavily 무료 티어 오류/한도 초과 시 폴백
+        print(
+            f"TAVILY_SEARCH_ERROR query={search_query_text!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        yield FALLBACK_MESSAGE
+        return
+
+    system_prompt = assemble_web_search_system_turn()
+    user_prompt = assemble_web_search_user_turn(
+        web_results, conversation_history, wrapped_text
+    )
+
+    started_at = time.monotonic()
+    raw_answer = "".join(stream_llm_answer(system_prompt, user_prompt, stream_fn))
+    processed_answer = postprocess_answer(raw_answer, [])
+    final_answer = verify_web_citation(processed_answer, web_results)
+    latency_ms = int((time.monotonic() - started_at) * 1000)
+
+    # CHAT-09와 동일 원칙: 의도·패치버전이 확정된(=Tavily 호출까지는 성공한)
+    # 정상 흐름이므로 Groq 자체가 실패해 FALLBACK_MESSAGE로 대체됐더라도 로깅한다
+    # (메인 흐름의 record_chat_log와 동일하게 캐시만 실패 시 별도로 거른다 — 이
+    # 경로는 애초에 캐시를 안 쓰므로 그 구분 자체가 없음).
+    record_chat_log(
+        db,
+        session_id=session_id,
+        patch_version=patch_version,
+        user_query=normalized_text,
+        intent=INTENT_GENERAL_GAME_INFO,
+        retrieved_docs=[],
+        answer=final_answer,
+        latency_ms=latency_ms,
+    )
+
+    yield from final_answer.split(" ")
+
+
 def generate_answer_stream(
     db: Session,
     session_id: str,
@@ -132,12 +197,20 @@ def generate_answer_stream(
     classify_fn: Callable[[str], str],
     search_fn: Callable[[Session, str, str, list[float]], list[MetaDocumentEmbedding]],
     stream_fn: Callable[[str, str], Generator[str, None, None]],
+    web_search_fn: Callable[[str], list[WebSearchResult]],
     result: dict[str, object] | None = None,
 ) -> Generator[str, None, None]:
     """전처리(CHAT-04)가 계산만 해두고 미뤄뒀던 is_off_topic/needs_clarification
     응답 분기를 여기서 실제로 연결하고, 정상 질문은 의도분류(CHAT-01) → 검색(CHAT-02)
     → 프롬프트 조립(CHAT-03) → Groq 스트리밍(CHAT-05) 순으로 배선한다. 각 단계
     로직은 이미 해당 TASK에서 검증됐으므로 이 함수는 배선만 담당한다.
+
+    web_search_fn(CHAT-17): 의도가 general_game_info면 CHAT-02 내부 검색
+    대신 이 함수(Tavily)로 근거를 만든다 — 별도 분기(`_generate_web_search_answer`
+    참고)라 result 사이드채널(CHAT-11 후속질문)·캐시(CHAT-08)는 이번 범위에서
+    지원하지 않는다(웹 검색 결과는 meta_document_embeddings에 없어 기존
+    retrieved_doc_ids 기반 캐시/후속질문 구조를 그대로 못 씀 — 필요해지면 별도
+    TASK로 확장).
 
     offtopic_confirm_fn(CHAT-16): preprocessed.is_off_topic은 키워드 매칭 실패만
     의미하는 1차 후보 판정이라, 여기서 2차 LLM 검증으로 재확인한 뒤에만 실제로
@@ -210,6 +283,23 @@ def generate_answer_stream(
             return
 
     intent = classify_fn(preprocessed.normalized_text)
+
+    if intent == INTENT_GENERAL_GAME_INFO:
+        search_query_text = _build_search_query_text(
+            preprocessed.normalized_text, conversation_history
+        )
+        yield from _generate_web_search_answer(
+            db,
+            session_id=session_id,
+            patch_version=patch_version,
+            normalized_text=preprocessed.normalized_text,
+            search_query_text=search_query_text,
+            conversation_history=conversation_history,
+            wrapped_text=preprocessed.wrapped_text,
+            web_search_fn=web_search_fn,
+            stream_fn=stream_fn,
+        )
+        return
 
     # 후속질문이 "이 챔피언들"처럼 대명사로 직전 답변을 가리키면, 의미 검색은
     # 근사할 뿐이라 무관한 챔피언이 섞이거나 언급된 챔피언이 빠지는 문제가

@@ -142,6 +142,7 @@ def test_normal_flow_creates_chat_log_row(seeded_patch_session: Session) -> None
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -174,6 +175,7 @@ def test_needs_clarification_does_not_create_chat_log(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called,
             search_fn=_fail_if_called,
+            web_search_fn=lambda text: [],
             stream_fn=_fail_if_called,
         )
     )

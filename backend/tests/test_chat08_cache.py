@@ -130,6 +130,7 @@ def test_first_turn_cache_hit_skips_pipeline_entirely(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda text: [],
             stream_fn=_fail_if_called("stream_fn"),
         )
     )
@@ -164,6 +165,7 @@ def test_first_turn_cache_hit_still_records_chat_log(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda text: [],
             stream_fn=_fail_if_called("stream_fn"),
         )
     )
@@ -203,6 +205,7 @@ def test_first_turn_cache_hit_enables_context_on_next_turn(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda text: [],
             stream_fn=_fail_if_called("stream_fn"),
         )
     )
@@ -222,6 +225,7 @@ def test_first_turn_cache_hit_enables_context_on_next_turn(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=lambda system_prompt, user_message: iter(["후속 답변"]),
         )
     )
@@ -251,6 +255,7 @@ def test_first_turn_cache_hit_with_legacy_entry_skips_logging(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda text: [],
             stream_fn=_fail_if_called("stream_fn"),
         )
     )
@@ -280,6 +285,7 @@ def test_first_turn_cache_miss_generates_and_stores(
             # (근거 없는 답변은 후속질문 무의미 문제 재발 방지), 이 테스트가
             # 검증하려는 "정상 캐시 저장" 시나리오에는 문서가 하나 이상 있어야 함.
             search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )
@@ -309,6 +315,7 @@ def test_groq_fallback_message_is_not_cached(seeded_patch_session: Session) -> N
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=always_failing_stream_fn,
         )
     )
@@ -359,6 +366,7 @@ def test_subsequent_turn_ignores_cache_even_if_entry_exists(
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
+            web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
     )

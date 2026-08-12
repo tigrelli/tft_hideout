@@ -7,15 +7,24 @@ INTENT_COMP_RECOMMENDATION = "comp_recommendation"
 INTENT_ITEM_RECOMMENDATION = "item_recommendation"
 INTENT_AUGMENT_RECOMMENDATION = "augment_recommendation"
 INTENT_GENERAL_STRATEGY = "general_strategy"
+# CHAT-17(PM 요청 2026-08-12): 시즌 일정·공식 이벤트 등 TFT 관련이지만 내부 RAG
+# (comps/item_builds/augments)로는 답할 수 없는 "일반 게임 정보" 질문 전용
+# 의도. 키워드로 사전 나열하기 어려운(패턴이 다양한) 잔여 카테고리라 1차
+# 키워드 매칭(_KEYWORD_PATTERNS)에는 넣지 않고 2차 LLM 분류로만 도달한다 —
+# CHAT-16의 오프토픽 2차 검증과 동일하게, 명확한 신호가 없을 때만 LLM에 맡기는
+# 설계 원칙을 따른다.
+INTENT_GENERAL_GAME_INFO = "general_game_info"
 
 VALID_INTENTS = {
     INTENT_COMP_RECOMMENDATION,
     INTENT_ITEM_RECOMMENDATION,
     INTENT_AUGMENT_RECOMMENDATION,
     INTENT_GENERAL_STRATEGY,
+    INTENT_GENERAL_GAME_INFO,
 }
 
-# glossary.md "챗봇 의도 분류 (4종, 고정)" 기준 1차 키워드 규칙
+# glossary.md "챗봇 의도 분류 (4종, 고정)" 기준 1차 키워드 규칙 + CHAT-17
+# general_game_info(2차 LLM 전용, 위 설명 참고)
 _KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {
     INTENT_COMP_RECOMMENDATION: re.compile(r"조합|덱|편성"),
     INTENT_ITEM_RECOMMENDATION: re.compile(r"아이템|빌드|장비"),
@@ -25,11 +34,13 @@ _KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {
 
 _SYSTEM_PROMPT = (
     "다음은 TFT(전략적 팀 전투) 챗봇에 들어온 질문이다. "
-    "아래 4개 카테고리 코드 중 정확히 하나만 다른 말 없이 출력해라.\n"
+    "아래 5개 카테고리 코드 중 정확히 하나만 다른 말 없이 출력해라.\n"
     "- comp_recommendation: 조합/덱 추천 질문\n"
     "- item_recommendation: 아이템/빌드 추천 질문\n"
     "- augment_recommendation: 증강체 추천 질문\n"
-    "- general_strategy: 위 세 가지에 속하지 않는 일반 전략 질문"
+    "- general_game_info: 시즌 일정/출시 일정/공식 이벤트 등 게임 운영 정보 질문"
+    "(내부 데이터베이스로는 답할 수 없는 일반 게임 정보)\n"
+    "- general_strategy: 위 네 가지에 속하지 않는 일반 전략 질문"
 )
 
 
