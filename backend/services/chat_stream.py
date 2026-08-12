@@ -15,7 +15,11 @@ from db.models import ChatLog, MetaDocumentEmbedding
 from services.chat_cache import get_cached_answer, store_answer_in_cache
 from services.chat_links import extract_champion_ids_from_answer, insert_links
 from services.chat_logging import record_chat_log
-from services.chat_postprocessing import postprocess_answer
+from services.chat_postprocessing import (
+    mask_augment_win_rate_leak,
+    postprocess_answer,
+    strip_internal_doc_marker_leak,
+)
 from services.chat_preprocessing import get_conversation_history, preprocess_input
 from services.current_patch import get_current_patch_version
 from services.hybrid_search import (
@@ -165,7 +169,14 @@ def _generate_web_search_answer(
 
     started_at = time.monotonic()
     raw_answer = "".join(stream_llm_answer(system_prompt, user_prompt, stream_fn))
-    processed_answer = postprocess_answer(raw_answer, [])
+    # postprocess_answer()의 verify_grounding()은 작은따옴표 인용을 내부 RAG
+    # 문서 메타데이터와 대조하는 CHAT-06 8번 규칙 전용 검증이다 — 이 경로는
+    # 그 규칙을 프롬프트에 넣지 않았는데도(WEB_SEARCH_SYSTEM_PROMPT) 모델이
+    # 자연스럽게 고유명사를 인용하면 항상 근거 없음(빈 retrieved_docs)으로
+    # 오탐하므로 재사용하지 않는다(2026-08-12 PM 제보로 발견). 대신 URL 기반
+    # verify_web_citation()이 이 경로의 근거검증을 전담한다.
+    processed_answer = strip_internal_doc_marker_leak(raw_answer)
+    processed_answer = mask_augment_win_rate_leak(processed_answer)
     final_answer = verify_web_citation(processed_answer, web_results)
     latency_ms = int((time.monotonic() - started_at) * 1000)
 

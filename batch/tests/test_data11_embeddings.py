@@ -41,6 +41,7 @@ class _FakeComp:
     win_rate: float | None
     play_rate: float
     playstyle_text: str
+    is_active: bool = True
 
 
 @dataclass
@@ -114,6 +115,51 @@ def test_playstyle_chunk_text() -> None:
         playstyle_text="AP 캐리 조합",
     )
     assert playstyle_chunk_text(comp) == "가짜 조합 조합 플레이 스타일: AP 캐리 조합"
+
+
+# ---- CHAT-18(PM 제보 2026-08-12): is_active=false 조합 상태 표시 -----------------
+
+
+def test_comp_chunk_text_does_not_add_notice_for_active_comp() -> None:
+    comp = _FakeComp(
+        name="활성 조합",
+        tier_rank="S",
+        avg_place=3.0,
+        win_rate=0.2,
+        play_rate=0.02,
+        playstyle_text="설명",
+        is_active=True,
+    )
+    text = comp_chunk_text(comp, [])
+    assert "상위 10위 밖" not in text
+
+
+def test_comp_chunk_text_adds_notice_for_inactive_comp() -> None:
+    comp = _FakeComp(
+        name="비활성 조합",
+        tier_rank="S",
+        avg_place=3.4,
+        win_rate=None,
+        play_rate=0.005,
+        playstyle_text="설명",
+        is_active=False,
+    )
+    text = comp_chunk_text(comp, [])
+    assert "상위 10위 밖" in text
+
+
+def test_playstyle_chunk_text_adds_notice_for_inactive_comp() -> None:
+    comp = _FakeComp(
+        name="비활성 조합",
+        tier_rank="S",
+        avg_place=3.4,
+        win_rate=None,
+        play_rate=0.005,
+        playstyle_text="설명",
+        is_active=False,
+    )
+    text = playstyle_chunk_text(comp)
+    assert "상위 10위 밖" in text
 
 
 def test_augment_chunk_text_does_not_include_win_rate() -> None:
@@ -440,6 +486,21 @@ def test_collect_chunks_builds_all_doc_types(seeded_session: Session) -> None:
     }
     comp_chunk = next(c for c in chunks if c["doc_type"] == "comp")
     assert "엑스(캐리)" in comp_chunk["content_text"]
+
+
+# CHAT-18(PM 제보 2026-08-12): comp/playstyle 메타데이터에 조합 이름만 있고
+# 구성 챔피언 개별 이름이 없어, 챗봇 백엔드의 verify_grounding()이 정상 인용된
+# 챔피언 이름도 항상 근거검증 경고를 유발했다(CHAT-13이 item_build에 이미
+# 고친 것과 동일한 구조적 문제) — "champions" 키로 보강.
+def test_collect_chunks_comp_and_playstyle_metadata_includes_champion_names(
+    seeded_session: Session,
+) -> None:
+    chunks = collect_chunks(seeded_session, "17.8")
+    comp_chunk = next(c for c in chunks if c["doc_type"] == "comp")
+    playstyle_chunk = next(c for c in chunks if c["doc_type"] == "playstyle")
+
+    assert comp_chunk["metadata"]["champions"] == ["엑스"]
+    assert playstyle_chunk["metadata"]["champions"] == ["엑스"]
 
 
 # CHAT-14: description이 있는 아이템만 "item" doc_type으로 임베딩되는지 확인.

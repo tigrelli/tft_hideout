@@ -88,6 +88,19 @@ _TIER_RANK_PRIORITY = case(
     else_=5,
 )
 
+# CHAT-18(PM 제보 2026-08-12): DATA-17 소프트 삭제(is_active=false)로 op.gg
+# 상위 10위 밖으로 밀려난 조합은 그 시점 이후 tier_rank가 갱신되지 않고
+# 얼어붙는다 — 위 _TIER_RANK_PRIORITY만으로 정렬하면 오래된 "S"가 실제로는
+# 지금 활성인 "A"보다 먼저 뽑히는 랭킹 왜곡이 생긴다. is_active를 tier_rank보다
+# 앞선 1차 정렬 기준으로 둬 비활성 조합은 항상 활성 조합보다 뒤로 밀리게 한다.
+# doc_metadata에 "is_active" 키가 없는 doc_type(augment/item_build/champion/item)은
+# JSONB ->>가 NULL을 반환해 "false"와 같지 않으므로 else_(0, 정상 취급)로 빠진다
+# — comp/playstyle에만 실질적으로 영향을 준다.
+_ACTIVE_PRIORITY = case(
+    (MetaDocumentEmbedding.doc_metadata["is_active"].astext == "false", 1),
+    else_=0,
+)
+
 # CHAT-15: pgvector 코사인 거리는 지금까지 정렬(가까운 순)에만 쓰이고 값 자체는
 # 버려졌다 — top-k 안에만 들면 아무리 멀어도 근거 문서로 채택돼, 사전
 # (SLANG_DICTIONARY)에 없는 줄임말·오타 질의("죽무 효과는?")가 전혀 다른
@@ -142,7 +155,7 @@ def hybrid_search(
             MetaDocumentEmbedding.doc_type.in_(doc_types),
             _distance_within_threshold(doc_types, distance),
         )
-        .order_by(_TIER_RANK_PRIORITY, distance)
+        .order_by(_ACTIVE_PRIORITY, _TIER_RANK_PRIORITY, distance)
         .limit(top_k)
     )
     return list(session.scalars(stmt).all())
@@ -192,7 +205,7 @@ def _search_single_doc_type(
     stmt = (
         select(MetaDocumentEmbedding)
         .where(*conditions)
-        .order_by(_TIER_RANK_PRIORITY, distance)
+        .order_by(_ACTIVE_PRIORITY, _TIER_RANK_PRIORITY, distance)
         .limit(count)
     )
     return list(session.scalars(stmt).all())

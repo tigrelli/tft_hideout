@@ -41,8 +41,11 @@ _NAME_METADATA_KEYS = ("name", "champion")
 # item_build는 챔피언 하나에 아이템이 여러 개라 단일 문자열이 아니라 목록으로
 # 실려 있다(CHAT-13, DATA-11 collect_chunks의 "items" 키 참고) — 아이템 이름이
 # 여기 없으면 8번 규칙대로 정상 인용된 아이템도 항상 근거검증 경고를 유발한다
-# (PM 제보 2026-08-08, CHAT-12 작업결과).
-_NAME_LIST_METADATA_KEYS = ("items",)
+# (PM 제보 2026-08-08, CHAT-12 작업결과). comp/playstyle도 조합 이름("name")만
+# 알려져 있고 구성 챔피언 개별 이름은 없어 CHAT-13과 동일한 구조적 오탐이
+# 있었음을 CHAT-18 검증 중 추가로 발견(2026-08-12 PM 제보) — "champions" 키로
+# 동일하게 보강(batch/embeddings.py collect_comp_and_playstyle_chunks 참고).
+_NAME_LIST_METADATA_KEYS = ("items", "champions")
 
 
 def _known_names(retrieved_docs: list[MetaDocumentEmbedding]) -> set[str]:

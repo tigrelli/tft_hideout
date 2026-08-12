@@ -237,6 +237,38 @@ def test_general_game_info_falls_back_to_fallback_message_on_tavily_failure(
     assert logs == []
 
 
+def test_general_game_info_answer_with_quoted_name_does_not_trigger_rag_grounding_warning(
+    seeded_patch_session: Session,
+) -> None:
+    """2026-08-12 PM 제보로 발견한 회귀: postprocess_answer()의
+    verify_grounding()(CHAT-06, 작은따옴표 인용을 retrieved_docs 메타데이터와
+    대조)을 이 경로에 재사용하면, WEB_SEARCH_SYSTEM_PROMPT는 인용 규칙을 지시한
+    적 없는데도 모델이 자연스럽게 고유명사를 인용할 때마다 retrieved_docs=[]라
+    항상 "확인되지 않았습니다" 오탐 경고가 붙었다. 이 경로는 verify_web_citation
+    (URL 기반)만으로 근거검증을 해야 한다."""
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        yield "Set 18 'Enchanted Wilds'는 2026-08-12에 출시되었습니다. [출처](https://a.example/1)"
+
+    tokens = list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "99999999-9999-9999-9999-999999999999",
+            "시즌 종료는 언제야",
+            embed_fn=_fail_if_called("embed_fn"),
+            offtopic_confirm_fn=lambda text: False,
+            classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
+            search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda q: [
+                WebSearchResult(title="t", url="https://a.example/1", content="c")
+            ],
+            stream_fn=fake_stream_fn,
+        )
+    )
+    answer = " ".join(tokens)
+    assert "명칭은 검색된 문서에서 확인되지 않았습니다" not in answer
+
+
 def test_general_game_info_answer_gets_citation_warning_for_hallucinated_url(
     seeded_patch_session: Session,
 ) -> None:

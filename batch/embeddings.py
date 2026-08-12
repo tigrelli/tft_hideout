@@ -102,21 +102,38 @@ class HuggingFaceEmbeddingClient:
 # ---- 순수 chunk 텍스트 생성 함수(DB 미접근) -------------------------------------
 
 
+# CHAT-18(PM 제보 2026-08-12): comps.is_active(DATA-17 소프트 삭제 플래그)가
+# 임베딩 텍스트에 전혀 반영되지 않아, op.gg 상위 10위에서 밀려난(그래서
+# 티어/평균등수 등 수치가 그 이후로 갱신되지 않고 얼어붙은) 조합도 챗봇이
+# "티어 S" 같은 현재형 문구로 그대로 추천하는 문제를 발견 — 사이트
+# 티어리스트(GET /catalog/tierlist)엔 is_active=false 조합이 안 보이는데
+# 챗봇만 "지금 메타"인 것처럼 답해 정보 불일치가 있었다. 재수집 시 통계
+# 자체를 감추면 하드 삭제와 마찬가지로 근거 자체가 사라지므로, 텍스트에
+# 상태를 명시해 LLM이 정직하게 캐비엇을 달 수 있는 재료만 제공한다
+# (SYSTEM_PROMPT_BASE 11번 규칙이 실제 문구를 지시).
+_INACTIVE_COMP_NOTICE = (
+    " (주의: 이 조합은 현재 op.gg 상위 10위 밖으로 밀려났습니다 — "
+    "위 수치는 마지막으로 상위권이었던 시점 기준이라 최신이 아닐 수 있습니다.)"
+)
+
+
 def comp_chunk_text(comp: Any, member_names: list[tuple[str, bool]]) -> str:
     """member_names: [(챔피언 이름, is_carry), ...]."""
     members = ", ".join(
         f"{name}(캐리)" if is_carry else name for name, is_carry in member_names
     )
     win_rate_text = f"{comp.win_rate:.1%}" if comp.win_rate is not None else "정보 없음"
+    notice = "" if comp.is_active else _INACTIVE_COMP_NOTICE
     return (
         f"{comp.name} 조합(티어 {comp.tier_rank}): 평균 등수 {comp.avg_place:.2f}, "
         f"승률 {win_rate_text}, 픽률 {comp.play_rate:.1%}. "
-        f"구성: {members}. {comp.playstyle_text}"
+        f"구성: {members}. {comp.playstyle_text}{notice}"
     )
 
 
 def playstyle_chunk_text(comp: Any) -> str:
-    return f"{comp.name} 조합 플레이 스타일: {comp.playstyle_text}"
+    notice = "" if comp.is_active else _INACTIVE_COMP_NOTICE
+    return f"{comp.name} 조합 플레이 스타일: {comp.playstyle_text}{notice}"
 
 
 def augment_chunk_text(augment: Any) -> str:
@@ -227,13 +244,24 @@ def collect_comp_and_playstyle_chunks(
             for link in links
             if link.champion_id in champion_by_id
         ]
+        # CHAT-18(PM 제보 2026-08-12): comp/playstyle 메타데이터엔 조합 이름만
+        # 있고 구성 챔피언 개별 이름이 없어, 시스템 프롬프트 8번 규칙대로 LLM이
+        # 답변에서 챔피언 이름을 정상적으로 인용해도 verify_grounding()이 항상
+        # "확인되지 않음" 오탐을 냈다(CHAT-13이 item_build에 이미 고친 것과
+        # 동일한 구조적 문제) — "champions" 키로 구성원 이름 목록을 추가.
+        champion_names = [name for name, _ in member_names]
         chunks.append(
             {
                 "doc_type": "comp",
                 "source_table": "comps",
                 "source_id": comp.id,
                 "content_text": comp_chunk_text(comp, member_names),
-                "metadata": {"name": comp.name, "tier_rank": comp.tier_rank},
+                "metadata": {
+                    "name": comp.name,
+                    "tier_rank": comp.tier_rank,
+                    "is_active": comp.is_active,
+                    "champions": champion_names,
+                },
             }
         )
         chunks.append(
@@ -242,7 +270,11 @@ def collect_comp_and_playstyle_chunks(
                 "source_table": "comps",
                 "source_id": comp.id,
                 "content_text": playstyle_chunk_text(comp),
-                "metadata": {"name": comp.name},
+                "metadata": {
+                    "name": comp.name,
+                    "is_active": comp.is_active,
+                    "champions": champion_names,
+                },
             }
         )
 

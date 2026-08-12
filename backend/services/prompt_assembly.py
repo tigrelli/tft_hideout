@@ -30,6 +30,11 @@ from services.web_search import WebSearchResult
 # 없어 few-shot과 어긋나는 반말 답변이 실제로 발생함 — 2026-08-12 PM 제보로
 # 발견. 1번 규칙 예시도 존댓말로 함께 수정. `_NO_GROUNDED_INFO_MARKERS`
 # (chat_stream.py) 매칭은 "확인되지 않았"까지만 비교해 어미와 무관하므로 영향 없음.
+# + CHAT-18(PM 제보 2026-08-12) 11번 규칙 추가: DATA-17 소프트 삭제(is_active)로
+# 사이트 티어리스트에서는 빠졌지만 챗봇 RAG 근거로는 여전히 남아있는 조합을,
+# `batch/embeddings.py`가 새로 넣은 "상위 10위 밖으로 밀려남" 문구를 근거로
+# 정직하게 캐비엇을 달도록 지시(hybrid_search.py의 랭킹 우선순위도 함께 수정
+# — 아래 해당 모듈 참고).
 SYSTEM_PROMPT_BASE = """너는 TFT(전략적 팀 전투) 메타 정보 전문 어시스턴트다. 아래 규칙을 반드시 지켜라.
 1. [검색된 문서] 섹션에 있는 정보만 근거로 답하라. 문서에 없는 내용은 추측하지 말고
    '해당 정보는 확인되지 않았습니다'라고 답하라.
@@ -48,7 +53,12 @@ SYSTEM_PROMPT_BASE = """너는 TFT(전략적 팀 전투) 메타 정보 전문 �
 9. 항목을 2개 이상 나열할 때는 한 문장으로 이어 쓰지 말고 항목마다 줄을 바꿔
    '- '로 시작하는 목록으로 작성하라 (예: '- '이즈리얼': 붉은 덩굴정령, 쇼진의 창').
 10. 모든 답변은 항상 존댓말(예: '-습니다', '-어요')로 작성하라. 반말체 어미
-    (예: '-다', '-였다', '-았다')는 쓰지 마라."""
+    (예: '-다', '-였다', '-았다')는 쓰지 마라.
+11. [검색된 문서]에 "현재 op.gg 상위 10위 밖으로 밀려났습니다" 같은 문구가 있는
+    조합은 그 조합의 티어·평균 등수·승률 등 수치를 지금도 유효한 현재 순위인
+    것처럼 단정하지 마라. 그런 조합을 언급할 때는 그런 덱이 존재했다는 사실과
+    함께, 지금은 상위권 밖으로 밀려나 그 수치가 최신이 아닐 수 있다는 점을
+    반드시 함께 밝혀라."""
 
 # 설계서 4.4.1 "의도별 프롬프트는 이 시스템 프롬프트에 아래 표의 추가 지시를 덧붙이는
 # 방식으로 구성한다" 표 그대로
@@ -99,7 +109,9 @@ def build_system_prompt(intent: str) -> str:
 WEB_SEARCH_SYSTEM_PROMPT = """너는 TFT(전략적 팀 전투) 메타 정보 전문 어시스턴트다. 아래 규칙을 반드시 지켜라.
 1. [웹 검색 결과] 섹션에 있는 정보만 근거로 답하라. 검색 결과에 없는 내용은 추측하지 말고
    '해당 정보는 확인되지 않았습니다'라고 답하라.
-2. 답변 끝에 참고한 출처 URL을 반드시 포함하라 (예: '(출처: https://...)').
+2. 답변 끝에 참고한 출처 URL을 반드시 마크다운 링크 형식 '[출처](URL)'로 포함하라
+   (예: '[출처](https://example.com)'). URL을 절대 원문 그대로 노출하지 마라 — 링크
+   라벨(대괄호 안)만 화면에 짧게 표시되고 실제 주소는 클릭 시에만 열린다.
 3. [웹 검색 결과]는 라이엇의 공식 자료가 아닐 수 있으니 단정적으로 말하지 말고
    완곡한 표현을 써라 (예: '~로 알려져 있습니다').
 4. TFT와 무관한 질문에는 정중히 범위를 벗어난다고 안내하고 답변을 시도하지 마라.
@@ -109,13 +121,13 @@ WEB_SEARCH_SYSTEM_PROMPT = """너는 TFT(전략적 팀 전투) 메타 정보 전
 
 WEB_SEARCH_FEW_SHOT_EXAMPLE = """[예시]
 질문: TFT 다음 시즌은 언제 끝나?
-검색 결과: Set 18 'Enchanted Wilds'는 2026-08-12에 출시되었으며, 세트 전환은
-라이엇 공식 발표 기준 통상 4~6개월 주기로 진행된다고 알려져 있습니다. (출처:
-https://teamfighttactics.leagueoflegends.com/en-us/news/game-updates/enchanted-wilds-overview)
+검색 결과: Set 18 Enchanted Wilds는 2026-08-12에 출시되었으며, 세트 전환은
+라이엇 공식 발표 기준 통상 4~6개월 주기로 진행된다고 알려져 있습니다.
+(출처: https://teamfighttactics.leagueoflegends.com/en-us/news/game-updates/enchanted-wilds-overview)
 답변: 공식 종료일이 명시적으로 발표되지는 않았지만, Set 18은 2026-08-12에 출시되었고
 통상적인 세트 전환 주기(4~6개월)를 고려하면 이번 시즌도 비슷한 시점에 마무리될
 것으로 알려져 있습니다. 정확한 날짜는 라이엇 공식 발표를 확인해주세요.
-(출처: https://teamfighttactics.leagueoflegends.com/en-us/news/game-updates/enchanted-wilds-overview)"""
+[출처](https://teamfighttactics.leagueoflegends.com/en-us/news/game-updates/enchanted-wilds-overview)"""
 
 
 def _format_web_search_results(results: list[WebSearchResult]) -> str:

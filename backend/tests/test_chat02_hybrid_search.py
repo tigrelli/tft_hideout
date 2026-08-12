@@ -738,6 +738,48 @@ def test_comp_recommendation_orders_higher_tier_before_closer_lower_tier(
     assert [r.source_id for r in results] == [202]
 
 
+# CHAT-18(PM 제보 2026-08-12): DATA-17 소프트 삭제(is_active=false)된 조합은
+# op.gg 상위 10위에서 밀려난 이후 tier_rank가 갱신 없이 얼어붙는다 — 활성
+# 조합보다 항상 뒤로 밀려야 한다(얼어붙은 옛 "S"가 지금 활성인 "A"를 이기면 안 됨).
+def test_comp_recommendation_ranks_active_comp_before_inactive_even_if_lower_tier(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=401,
+                content_text="비활성 S티어 조합(거리 가까움)",
+                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
+                doc_metadata={"tier_rank": "S", "is_active": False},
+            )
+        )
+        session.execute(
+            insert(MetaDocumentEmbedding).values(
+                patch_version="17.8",
+                doc_type="comp",
+                source_table="comps",
+                source_id=402,
+                content_text="활성 A티어 조합(거리 멂)",
+                embedding=_one_hot(EMBEDDING_DIM, 1, 1.0),
+                doc_metadata={"tier_rank": "A", "is_active": True},
+            )
+        )
+        session.commit()
+
+        results = hybrid_search(
+            session,
+            INTENT_COMP_RECOMMENDATION,
+            "17.8",
+            _one_hot(EMBEDDING_DIM, 0, 1.0),
+            top_k=1,
+        )
+    # 티어(S>A)·거리 모두 401이 유리하지만, 비활성이라 활성인 402가 먼저 나와야 함
+    assert [r.source_id for r in results] == [402]
+
+
 def test_general_strategy_balanced_search_orders_comp_allocation_by_tier(
     seeded_docs: Engine,
 ) -> None:

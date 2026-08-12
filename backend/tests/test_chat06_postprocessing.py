@@ -15,12 +15,18 @@ from services.chat_postprocessing import (
 )
 
 
-def _doc(name: str | None = None, champion: str | None = None) -> MetaDocumentEmbedding:
+def _doc(
+    name: str | None = None,
+    champion: str | None = None,
+    champions: list[str] | None = None,
+) -> MetaDocumentEmbedding:
     metadata: dict = {}
     if name is not None:
         metadata["name"] = name
     if champion is not None:
         metadata["champion"] = champion
+    if champions is not None:
+        metadata["champions"] = champions
     return MetaDocumentEmbedding(doc_metadata=metadata)
 
 
@@ -57,6 +63,20 @@ def test_verify_grounding_checks_champion_name_from_item_build_metadata() -> Non
     result = verify_grounding(answer, docs)
 
     assert result == answer
+
+
+# CHAT-18(PM 제보 2026-08-12): comp/playstyle 문서엔 조합 이름만 있고 구성
+# 챔피언 개별 이름이 없어, 8번 규칙대로 정상 인용된 챔피언 이름도 항상
+# "확인되지 않음" 오탐을 냈다(CHAT-13이 item_build에 이미 고친 것과 동일한
+# 구조적 문제) — "champions" 목록 키로 보강.
+def test_verify_grounding_checks_champion_names_from_comp_metadata() -> None:
+    answer = "'별돌보미 자야' 조합은 '자야'와 '진'을 캐리로 운영합니다."
+    docs = [_doc(name="별돌보미 자야", champions=["자야", "진", "룰루"])]
+
+    result = verify_grounding(answer, docs)
+
+    assert result == answer
+    assert UNVERIFIED_NAME_WARNING not in result
 
 
 def test_verify_grounding_no_quotes_at_all_passes_through() -> None:
