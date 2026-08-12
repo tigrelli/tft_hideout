@@ -141,6 +141,18 @@ def test_strip_internal_doc_marker_leak_no_op_when_marker_absent() -> None:
     assert strip_internal_doc_marker_leak(answer) == answer
 
 
+# CHAT-17/18(PM 제보 2026-08-12): 웹검색 경로도 동일한 구조라 "[웹 검색 결과]"
+# 마커가 답변에 그대로 새는 것이 실제 운영에서 재현됨(RAG 경로의
+# "[검색된 문서]" 누출과 같은 종류의 문제).
+def test_strip_internal_doc_marker_leak_removes_web_search_marker() -> None:
+    answer = "[웹 검색 결과]를 바탕으로 살펴보면, 공식 이벤트가 진행 중입니다."
+
+    result = strip_internal_doc_marker_leak(answer)
+
+    assert "[웹 검색 결과]" not in result
+    assert result == "를 바탕으로 살펴보면, 공식 이벤트가 진행 중입니다."
+
+
 def test_postprocess_answer_removes_internal_doc_marker_leak() -> None:
     answer = "17.8 패치 기준입니다. \n(참고: [검색된 문서])"
 

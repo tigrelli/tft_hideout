@@ -31,8 +31,11 @@ _WIN_RATE_MASK_REPLACEMENT = "승률 정보 비공개"
 # "[검색된 문서]"를 그대로 베껴 답변에 남기는 경우가 실제 운영에서 관측됨
 # (2026-08-07, "17.8 패치 기준입니다. (참고: [검색된 문서])"). 실제 문서를
 # 가리키지 않는 문자열이라 사용자에게 혼란만 주므로 후처리에서 제거한다
-# (prompt_assembly.py 규칙 5 문구 보강과 함께 이중 방어).
-_INTERNAL_DOC_MARKER = "[검색된 문서]"
+# (prompt_assembly.py 규칙 5 문구 보강과 함께 이중 방어). CHAT-17의 웹검색
+# 경로도 동일한 구조([웹 검색 결과] 섹션 마커)라 같은 누출이 실제 운영에서
+# 재현됨("[웹 검색 결과]를 바탕으로 살펴보면...", 2026-08-12 PM 제보) — 마커
+# 목록에 함께 추가해 두 경로 모두 방어한다.
+_INTERNAL_DOC_MARKERS = ("[검색된 문서]", "[웹 검색 결과]")
 _EMPTY_CITATION_PATTERN = re.compile(r"\(\s*참고\s*:\s*\)")
 
 # retrieved_docs의 doc_metadata 중 "이름"으로 취급할 키 — doc_type별로 다름
@@ -85,12 +88,14 @@ def mask_augment_win_rate_leak(answer_text: str) -> str:
 
 
 def strip_internal_doc_marker_leak(answer_text: str) -> str:
-    """LLM이 프롬프트 내부 구획 표시 `[검색된 문서]`를 실제 문서 이름인 것처럼
-    답변에 그대로 옮긴 경우 제거한다. 마커만 지우면 `(참고: )`처럼 빈 괄호가
-    남을 수 있어 함께 정리한다."""
-    if _INTERNAL_DOC_MARKER not in answer_text:
+    """LLM이 프롬프트 내부 구획 표시(`[검색된 문서]`/`[웹 검색 결과]`)를 실제
+    문서 이름인 것처럼 답변에 그대로 옮긴 경우 제거한다. 마커만 지우면
+    `(참고: )`처럼 빈 괄호가 남을 수 있어 함께 정리한다."""
+    if not any(marker in answer_text for marker in _INTERNAL_DOC_MARKERS):
         return answer_text
-    text = answer_text.replace(_INTERNAL_DOC_MARKER, "")
+    text = answer_text
+    for marker in _INTERNAL_DOC_MARKERS:
+        text = text.replace(marker, "")
     text = _EMPTY_CITATION_PATTERN.sub("", text)
     return text.rstrip()
 
