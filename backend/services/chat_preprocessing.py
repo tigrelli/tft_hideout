@@ -1,10 +1,12 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from db.models import ChatLog
 from services.chat_session import RECENT_TURNS_LIMIT, get_session_history
+from services.groq_client import call_groq_chat
 
 # 설계서 4.4.2: 사용자 입력을 시스템 프롬프트와 구조적으로 분리하는 델리미터(NFR-SEC-03).
 USER_MESSAGE_DELIMITER_START = "[사용자 메시지]"
@@ -75,8 +77,42 @@ def wrap_user_message(text: str) -> str:
 
 
 def is_off_topic(normalized_text: str) -> bool:
-    """TFT 도메인 키워드가 전혀 없으면 범위 밖 질문으로 간주한다(제품 정책 기본값, 조정 가능)."""
+    """1차 키워드 판별. TFT 도메인 키워드가 전혀 없으면 범위 밖 '후보'로 간주한다
+    (최종 확정 아님 — CHAT-01 의도분류와 동일하게, 이 후보 판정만 2차 LLM 검증으로
+    넘어간다. 키워드가 매칭되면 이미 on-topic이 확실하므로 LLM 호출 없이 끝난다)."""
     return _TFT_DOMAIN_PATTERN.search(normalized_text) is None
+
+
+# CHAT-16(PM 요청 2026-08-12): is_off_topic()의 키워드 정규식이 미스하면 곧장
+# 범위 밖으로 거부해, "시즌 종료는 언제?"처럼 TFT 관련이지만 조합/아이템/메타 같은
+# 키워드가 없는 질문이 오분류되는 문제가 있었다. CHAT-01 의도분류의
+# "1차 키워드 → 애매하면 2차 Groq LLM" 패턴을 그대로 재사용해, 키워드가 미스한
+# 경우에만(chat_stream.py에서 호출 여부를 결정) 이 2차 검증을 태운다.
+_OFF_TOPIC_CONFIRM_SYSTEM_PROMPT = (
+    "다음은 TFT(전략적 팀 전투) 챗봇에 들어온 질문이다. 이 질문이 TFT 게임과 "
+    "조금이라도 관련 있으면(패치·시즌·업데이트 일정·이벤트·챔피언·아이템·조합·"
+    "증강체·전략·게임 시스템 등) 'on_topic'을, 게임과 전혀 무관한 잡담이나 다른 "
+    "게임 질문이면 'off_topic'을 다른 말 없이 정확히 하나만 출력해라."
+)
+
+
+def confirm_off_topic(
+    normalized_text: str, llm_call: Callable[[str, str], str]
+) -> bool:
+    """2차 분류: 1차 키워드가 범위 밖 후보로 판정한 질문만 Groq LLM에 재확인시킨다.
+    호출 실패나 유효하지 않은 응답은 on-topic으로 통과시킨다(fail-open, PM 결정
+    2026-08-12 — CHAT-01의 classify_by_llm과 동일하게 무료 티어 오류로 정상 질문이
+    잘못 거부되는 것보다 통과시키는 쪽이 안전하다는 판단)."""
+    try:
+        raw = llm_call(_OFF_TOPIC_CONFIRM_SYSTEM_PROMPT, normalized_text).strip()
+    except Exception:  # noqa: BLE001 — Groq 무료 티어 오류/한도 초과 시 on-topic 통과
+        return False
+    return raw == "off_topic"
+
+
+def is_off_topic_for_query(normalized_text: str) -> bool:
+    """운영 환경용 진입점. 실제 Groq 호출을 사용한다."""
+    return confirm_off_topic(normalized_text, call_groq_chat)
 
 
 def preprocess_input(raw: str) -> PreprocessResult:

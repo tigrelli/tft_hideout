@@ -23,6 +23,7 @@ from services.chat_stream import (
 )
 from services.intent_classification import (
     INTENT_COMP_RECOMMENDATION,
+    INTENT_GENERAL_STRATEGY,
     INTENT_ITEM_RECOMMENDATION,
 )
 
@@ -127,6 +128,7 @@ def test_needs_clarification_short_circuits_without_calling_pipeline(
                 "11111111-1111-1111-1111-111111111111",
                 "   ",  # 공백만 -> needs_clarification
                 embed_fn=_fail_if_called("embed_fn"),
+                offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
                 stream_fn=_fail_if_called("stream_fn"),
@@ -143,14 +145,39 @@ def test_off_topic_short_circuits_without_calling_pipeline(
             generate_answer_stream(
                 session,
                 "11111111-1111-1111-1111-111111111111",
-                "오늘 점심 뭐 먹지",  # TFT 무관
+                "오늘 점심 뭐 먹지",  # TFT 무관 — 키워드 미스 + 2차 LLM도 off_topic 확인
                 embed_fn=_fail_if_called("embed_fn"),
+                offtopic_confirm_fn=lambda text: True,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
                 stream_fn=_fail_if_called("stream_fn"),
             )
         )
     assert tokens == [OFF_TOPIC_MESSAGE]
+
+
+def test_off_topic_keyword_miss_but_llm_confirms_on_topic_continues_pipeline(
+    seeded_patch_session: Session,
+) -> None:
+    """CHAT-16: 키워드 매칭은 실패(off_topic 후보)했지만 2차 LLM 검증이
+    on_topic이라고 판단하면 거부하지 않고 정상 파이프라인을 계속 태운다."""
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        yield "생성된 답변"
+
+    tokens = list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "시즌 종료는 언제야",  # 키워드 미스, 하지만 TFT 관련
+            embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
+            classify_fn=lambda text: INTENT_GENERAL_STRATEGY,
+            search_fn=lambda db, intent, patch, emb: [],
+            stream_fn=fake_stream_fn,
+        )
+    )
+    assert tokens == ["생성된", "답변"]
 
 
 def test_no_current_patch_returns_fixed_message(migrated_engine: Engine) -> None:
@@ -161,6 +188,7 @@ def test_no_current_patch_returns_fixed_message(migrated_engine: Engine) -> None
                 "11111111-1111-1111-1111-111111111111",
                 "지금 메타 조합 추천해줘",
                 embed_fn=_fail_if_called("embed_fn"),
+                offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
                 stream_fn=_fail_if_called("stream_fn"),
@@ -216,6 +244,7 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=fake_embed_fn,
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=fake_classify_fn,
             search_fn=fake_search_fn,
             stream_fn=fake_stream_fn,
@@ -259,6 +288,7 @@ def test_item_doc_with_no_name_overlap_is_dropped_from_prompt(
             "11111111-1111-1111-1111-111111111111",
             "광폭검 효과는?",
             embed_fn=lambda text: [0.1, 0.2],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [doc],
             stream_fn=fake_stream_fn,
@@ -283,6 +313,7 @@ def test_item_doc_with_name_overlap_is_kept_in_prompt(
             "33333333-3333-3333-3333-333333333333",
             "보석 건틀릿 효과는?",
             embed_fn=lambda text: [0.1, 0.2],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [doc],
             stream_fn=fake_stream_fn,
@@ -320,6 +351,7 @@ def test_normal_flow_includes_conversation_history_in_prompt(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
             stream_fn=fake_stream_fn,
@@ -366,6 +398,7 @@ def test_search_embedding_includes_last_bot_answer_on_followup_turn(
             "11111111-1111-1111-1111-111111111111",
             "이 챔피언들 아이템 뭐 써야해",
             embed_fn=fake_embed_fn,
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
             stream_fn=lambda sp, um: iter(["답변"]),
@@ -391,6 +424,7 @@ def test_search_embedding_is_just_current_message_on_first_turn(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=fake_embed_fn,
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
             stream_fn=lambda sp, um: iter(["답변"]),
@@ -454,6 +488,7 @@ def test_item_recommendation_followup_bypasses_embed_and_search_via_structured_l
             "11111111-1111-1111-1111-111111111111",
             "이 챔피언 아이템 뭐 써야해",
             embed_fn=_fail_if_called("embed_fn"),
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=_fail_if_called("search_fn"),
             stream_fn=lambda sp, um: iter(["답변"]),
@@ -494,6 +529,7 @@ def test_item_recommendation_followup_without_champion_links_falls_back_to_searc
             "11111111-1111-1111-1111-111111111111",
             "아이템은 뭐가 좋아",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=fake_search_fn,
             stream_fn=lambda sp, um: iter(["답변"]),

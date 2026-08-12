@@ -203,6 +203,7 @@ def test_result_is_populated_with_final_answer_on_normal_flow(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
             stream_fn=fake_stream_fn,
@@ -233,6 +234,7 @@ def test_result_carries_retrieved_doc_types_for_followup_context(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: docs,
             stream_fn=fake_stream_fn,
@@ -246,13 +248,13 @@ def test_result_carries_retrieved_doc_types_for_followup_context(
 def test_result_stays_empty_and_answer_not_cached_when_no_docs_retrieved(
     seeded_patch_session: Session,
 ) -> None:
-    """2026-08-07 PM 피드백: 검색된 문서가 없어 "해당 정보는 확인되지 않았다"
+    """2026-08-07 PM 피드백: 검색된 문서가 없어 "해당 정보는 확인되지 않았습니다"
     류로만 답한 턴은 후속질문 생성 대상에서 빠져야 한다(근거 문서가 없어
     "그 정보 어디서 확인하나요" 같은 무의미한 후속질문만 나오던 문제) —
     캐시도 되지 않아야 이후 캐시 히트로 같은 문제가 재발하지 않는다."""
 
     def fake_stream_fn(system_prompt: str, user_message: str):
-        yield "해당 정보는 확인되지 않았다."
+        yield "해당 정보는 확인되지 않았습니다."
 
     result: dict[str, object] = {}
     list(
@@ -261,6 +263,7 @@ def test_result_stays_empty_and_answer_not_cached_when_no_docs_retrieved(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
             stream_fn=fake_stream_fn,
@@ -297,6 +300,7 @@ def test_result_stays_empty_but_answer_still_cached_when_docs_found_but_answer_s
             "11111111-1111-1111-1111-111111111111",
             question,
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
             stream_fn=fake_stream_fn,
@@ -319,6 +323,7 @@ def test_result_stays_empty_on_clarification_short_circuit(
                 "11111111-1111-1111-1111-111111111111",
                 "   ",
                 embed_fn=_fail_if_called,
+                offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called,
                 search_fn=_fail_if_called,
                 stream_fn=_fail_if_called,
@@ -340,6 +345,7 @@ def test_result_is_populated_on_cache_hit(seeded_patch_session: Session) -> None
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=_fail_if_called,
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called,
             search_fn=_fail_if_called,
             stream_fn=_fail_if_called,
@@ -371,6 +377,7 @@ def test_result_stays_empty_when_groq_fully_fails(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
             stream_fn=always_failing_stream_fn,
@@ -396,6 +403,7 @@ def test_generate_answer_stream_without_result_kwarg_still_works(
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
             embed_fn=lambda text: [0.0],
+            offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             search_fn=lambda db, intent, patch, emb: [],
             stream_fn=fake_stream_fn,

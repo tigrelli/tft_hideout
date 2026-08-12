@@ -128,6 +128,7 @@ def generate_answer_stream(
     raw_message: str,
     *,
     embed_fn: Callable[[str], list[float]],
+    offtopic_confirm_fn: Callable[[str], bool],
     classify_fn: Callable[[str], str],
     search_fn: Callable[[Session, str, str, list[float]], list[MetaDocumentEmbedding]],
     stream_fn: Callable[[str, str], Generator[str, None, None]],
@@ -137,6 +138,11 @@ def generate_answer_stream(
     응답 분기를 여기서 실제로 연결하고, 정상 질문은 의도분류(CHAT-01) → 검색(CHAT-02)
     → 프롬프트 조립(CHAT-03) → Groq 스트리밍(CHAT-05) 순으로 배선한다. 각 단계
     로직은 이미 해당 TASK에서 검증됐으므로 이 함수는 배선만 담당한다.
+
+    offtopic_confirm_fn(CHAT-16): preprocessed.is_off_topic은 키워드 매칭 실패만
+    의미하는 1차 후보 판정이라, 여기서 2차 LLM 검증으로 재확인한 뒤에만 실제로
+    거부한다(키워드가 매칭돼 이미 on-topic이 확실하면 이 함수 자체를 호출하지
+    않아 불필요한 Groq 호출을 만들지 않는다).
 
     result(선택, CHAT-11): 넘겨주면 사용자에게 보여줄 실제 답변이 나온 턴에
     result["answer_text"]를 담아둔다(호출측이 스트림을 전부 소비한 뒤 후속
@@ -160,7 +166,7 @@ def generate_answer_stream(
     if preprocessed.needs_clarification:
         yield CLARIFICATION_MESSAGE
         return
-    if preprocessed.is_off_topic:
+    if preprocessed.is_off_topic and offtopic_confirm_fn(preprocessed.normalized_text):
         yield OFF_TOPIC_MESSAGE
         return
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from db.session import get_db
 from services.chat_followups import generate_followup_questions
+from services.chat_preprocessing import is_off_topic_for_query
 from services.chat_session import (
     RECENT_TURNS_LIMIT,
     get_session_history,
@@ -84,6 +85,7 @@ def post_chat_message(
         body.session_id,
         body.message,
         embed_fn=embed_query,
+        offtopic_confirm_fn=is_off_topic_for_query,
         classify_fn=classify_intent_for_query,
         search_fn=hybrid_search,
         stream_fn=stream_groq_chat,

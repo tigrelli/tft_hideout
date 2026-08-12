@@ -11,6 +11,7 @@ from services.chat_preprocessing import (
     MAX_QUERY_LENGTH,
     USER_MESSAGE_DELIMITER_END,
     USER_MESSAGE_DELIMITER_START,
+    confirm_off_topic,
     get_conversation_history,
     is_off_topic,
     normalize_query,
@@ -121,6 +122,40 @@ def test_preprocess_input_off_topic_flag_is_set_on_result() -> None:
     result = preprocess_input("오늘 점심 뭐 먹지")
     assert result.is_off_topic is True
     assert result.needs_clarification is False
+
+
+# ---- CHAT-16: 2차 LLM 오프토픽 검증(test-scenarios.md CHAT-04 #8~11) -------------
+
+
+# test-scenarios.md CHAT-04 #8 — 1차 키워드 미스, 2차 LLM은 on_topic
+def test_confirm_off_topic_returns_false_when_llm_says_on_topic() -> None:
+    def mock_llm_call(system_prompt: str, user_message: str) -> str:
+        return "on_topic"
+
+    assert confirm_off_topic("시즌 종료는 언제야", mock_llm_call) is False
+
+
+# test-scenarios.md CHAT-04 #9 — 1차 키워드 미스, 2차 LLM도 off_topic
+def test_confirm_off_topic_returns_true_when_llm_says_off_topic() -> None:
+    def mock_llm_call(system_prompt: str, user_message: str) -> str:
+        return "off_topic"
+
+    assert confirm_off_topic("오늘 점심 뭐 먹지", mock_llm_call) is True
+
+
+# test-scenarios.md CHAT-04 #10 — LLM 실패 시 fail-open(on-topic 통과, PM 결정 2026-08-12)
+def test_confirm_off_topic_fails_open_on_llm_error() -> None:
+    def failing_llm_call(system_prompt: str, user_message: str) -> str:
+        raise TimeoutError("mock Groq 오류")
+
+    assert confirm_off_topic("아무 질문", failing_llm_call) is False
+
+
+def test_confirm_off_topic_fails_open_on_invalid_response() -> None:
+    def mock_llm_call(system_prompt: str, user_message: str) -> str:
+        return "잘 모르겠어요"
+
+    assert confirm_off_topic("아무 질문", mock_llm_call) is False
 
 
 # test-scenarios.md CHAT-04 #7 — 대화 이력 관리(API-10 RECENT_TURNS_LIMIT 재사용)
