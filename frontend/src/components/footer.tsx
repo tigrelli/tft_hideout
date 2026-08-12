@@ -11,6 +11,15 @@ export function Footer() {
     <footer className="border-t border-border-default bg-surface-card pb-20 md:pb-0">
       <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-caption text-text-secondary md:px-10">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <a
+            href="https://tigrelli.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-text-primary"
+          >
+            Homepage
+          </a>
+          <span aria-hidden="true">·</span>
           <Link href="/about" className="hover:text-text-primary">
             About
           </Link>

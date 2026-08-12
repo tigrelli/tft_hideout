@@ -9,6 +9,19 @@ describe("Footer", () => {
     expect(link).toHaveAttribute("href", "/about");
   });
 
+  it("Homepage 링크를 About 앞에 노출한다", () => {
+    render(<Footer />);
+    const homepageLink = screen.getByRole("link", { name: "Homepage" });
+    expect(homepageLink).toHaveAttribute("href", "https://tigrelli.com/");
+    expect(homepageLink).toHaveAttribute("target", "_blank");
+    expect(homepageLink).toHaveAttribute("rel", "noopener noreferrer");
+
+    const links = screen.getAllByRole("link");
+    const homepageIndex = links.indexOf(homepageLink);
+    const aboutIndex = links.indexOf(screen.getByRole("link", { name: "About" }));
+    expect(homepageIndex).toBeLessThan(aboutIndex);
+  });
+
   it("문의 이메일(mailto)과 저작권 표기를 노출한다", () => {
     render(<Footer />);
     const mailLink = screen.getByRole("link", { name: "suraholic@gmail.com" });

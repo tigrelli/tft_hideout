@@ -15,12 +15,11 @@ describe("AboutPage — 소개 페이지", () => {
     expect(screen.getByText(/op\.gg\/tft/)).toBeInTheDocument();
   });
 
-  it("문의 이메일(mailto)과 저작권 표기를 포함한다", () => {
+  it("개발자 홈페이지(tigrelli.com) 링크를 포함한다", () => {
     render(<AboutPage />);
-    const mailLink = screen.getByRole("link", { name: "suraholic@gmail.com" });
-    expect(mailLink).toHaveAttribute("href", "mailto:suraholic@gmail.com");
-    expect(
-      screen.getByText(/TFT Hideout\. All rights reserved\./),
-    ).toBeInTheDocument();
+    const homepageLink = screen.getByRole("link", { name: "tigrelli.com" });
+    expect(homepageLink).toHaveAttribute("href", "https://tigrelli.com/");
+    expect(homepageLink).toHaveAttribute("target", "_blank");
+    expect(homepageLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 });

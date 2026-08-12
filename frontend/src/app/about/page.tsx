@@ -63,16 +63,16 @@ export default function AboutPage() {
 
       <div className="flex flex-col gap-1 text-caption text-text-secondary">
         <p>
-          문의사항은{" "}
+          개발자 홈페이지:{" "}
           <a
-            href="mailto:suraholic@gmail.com"
+            href="https://tigrelli.com/"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-text-primary hover:underline"
           >
-            suraholic@gmail.com
+            tigrelli.com
           </a>
-          으로 보내주세요.
         </p>
-        <p>&copy; 2026 TFT Hideout. All rights reserved.</p>
       </div>
     </article>
   );
