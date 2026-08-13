@@ -1,5 +1,16 @@
 import { API_BASE_URL } from "@/lib/api-config";
 
+// 호출부가 상태코드별로 분기해야 하는 경우(예: FE-12 KPI 게이트의 401 오답 판별)를
+// 위해 status를 함께 담는다.
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, path: string) {
+    super(`API 요청 실패(${status}): ${path}`);
+    this.status = status;
+  }
+}
+
 // 공용 데이터 fetching 유틸(CLAUDE.md 10.1) — 컴포넌트가 각자 fetch를 직접 호출하지
 // 않고 이 함수를 통해서만 백엔드 API를 호출한다.
 export async function fetchJson<T>(
@@ -8,7 +19,7 @@ export async function fetchJson<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, init);
   if (!response.ok) {
-    throw new Error(`API 요청 실패(${response.status}): ${path}`);
+    throw new ApiError(response.status, path);
   }
   return (await response.json()) as T;
 }
