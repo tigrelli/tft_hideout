@@ -40,7 +40,11 @@ describe("Home(티어리스트) — mock API 데이터 바인딩", () => {
     } as Response);
 
     render(<Home />);
-    expect(screen.getByText("불러오는 중...")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "불러오는 중입니다. 무료 호스팅 특성상 처음 접속 시 다소 시간이 걸릴 수 있습니다.",
+      ),
+    ).toBeInTheDocument();
 
     await waitFor(() =>
       expect(screen.getByText("아이오니아 마법사")).toBeInTheDocument(),
