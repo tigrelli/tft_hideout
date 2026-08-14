@@ -136,9 +136,29 @@ def test_preprocess_input_off_topic_flag_is_set_on_result() -> None:
         "몇 패치야?",
         "지금 몇패치야?",
         "패치버전 알려줘",
+        "패치가 몇이야?",  # "몇"이 "패치" 뒤에 오는 어순
+        "무슨 패치야?",
+        "어떤 패치야?",
     ],
 )
 def test_is_patch_version_query_flags_version_questions(query: str) -> None:
+    assert is_patch_version_query(query) is True
+
+
+# 회귀 재현(PM 재제보 2026-08-14): "버전"/"몇" 같은 명시적 신호 단어가 아예 없는
+# 최소 표현("패치는?")도 감지돼야 한다 — 프로덕션에서 실제로 이 오분류가 재현됨.
+@pytest.mark.parametrize(
+    "query",
+    [
+        "현재패치는?",
+        "지금 패치는?",
+        "패치가 뭐야?",
+        "패치는 뭐예요?",
+    ],
+)
+def test_is_patch_version_query_flags_bare_version_questions_without_signal_words(
+    query: str,
+) -> None:
     assert is_patch_version_query(query) is True
 
 
@@ -150,6 +170,7 @@ def test_is_patch_version_query_flags_version_questions(query: str) -> None:
         "이번 패치에 뭐가 바뀌었어?",
         "다음 패치는 언제야?",
         "지금 메타에서 강한 조합 추천해줘",
+        "패치노트 알려줘",
     ],
 )
 def test_is_patch_version_query_does_not_flag_other_patch_questions(

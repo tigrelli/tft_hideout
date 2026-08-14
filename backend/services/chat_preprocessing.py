@@ -54,13 +54,40 @@ _TFT_DOMAIN_PATTERN = re.compile(
 # 묻는 질문만 좁게 잡는다 — "이번 패치에 뭐가 바뀌었어?" 같은 패치노트류 질문은
 # 내부에 답할 데이터가 없어 이 패턴에 포함하지 않고 기존 general_game_info로
 # 그대로 보낸다(패치노트 자체가 chatbot 근거 데이터에 없음).
-_PATCH_VERSION_QUERY_PATTERN = re.compile(r"패치\s*버전|버전.*패치|몇\s*패치")
+#
+# 회귀 수정(PM 재제보 2026-08-14): 최초 구현은 "패치버전"/"버전+패치"/"몇+패치"만
+# 잡는 좁은 정규식이었는데, "현재패치는?"처럼 "버전"/"몇" 같은 명시적 신호 단어가
+# 아예 없는 최소 표현은 여전히 걸러지지 않고 그대로 오분류됨(프로덕션에서 실제로
+# 재현). 명시적 신호 단어(버전/몇/무슨/어떤)를 우선 확인하고, 신호 단어가 없으면
+# 패치노트류 배제 단어(바뀌/변경 등)부터 확인한 뒤, 그래도 남는 "패치"만 있는
+# 최소 질문 형태("패치는?", "패치가 뭐야?" 등)를 별도 패턴으로 흡수한다.
+_PATCH_VERSION_SIGNAL_WORDS = ("버전", "몇", "무슨", "어떤")
+_PATCH_NOTE_EXCLUSION_WORDS = (
+    "바뀌",
+    "바뀐",
+    "변경",
+    "달라진",
+    "패치노트",
+    "너프",
+    "버프",
+    "추가된",
+)
+_BARE_PATCH_QUERY_PATTERN = re.compile(
+    r"^(현재|지금|이번)?\s*패치\s*(는|가|이|을|를)?\s*(뭐(야|예요|지|임)?|무엇(인가요|이야)?)?$"
+)
 
 
 def is_patch_version_query(normalized_text: str) -> bool:
     """의도분류(CHAT-01)보다 먼저 걸러 이미 알고 있는 patch_version으로 결정론적으로
     즉답하기 위한 감지 함수(chat_stream.py 조기 반환에서 사용)."""
-    return _PATCH_VERSION_QUERY_PATTERN.search(normalized_text) is not None
+    if "패치" not in normalized_text:
+        return False
+    if any(word in normalized_text for word in _PATCH_VERSION_SIGNAL_WORDS):
+        return True
+    if any(word in normalized_text for word in _PATCH_NOTE_EXCLUSION_WORDS):
+        return False
+    stripped = normalized_text.rstrip("?!？! ").strip()
+    return _BARE_PATCH_QUERY_PATTERN.fullmatch(stripped) is not None
 
 
 @dataclass
