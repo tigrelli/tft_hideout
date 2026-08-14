@@ -32,6 +32,14 @@ _KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {
     INTENT_GENERAL_STRATEGY: re.compile(r"메타|전략"),
 }
 
+# CHAT-21(PM 제보 2026-08-14, TEST-11 QA 중 발견): 게임 공식 한글 명칭
+# "전략적 팀 전투"를 질문에 그대로 썼을 뿐인데("TFT(전략적 팀 전투)는 어떤
+# 게임인가요?") "전략"이 general_strategy 키워드에 걸려, "이 게임이 뭐야" 같은
+# 완전히 무관한 질문에까지 조합 추천 경로가 타 무관한 조합 통계가 답변에
+# 섞여 나왔다. 1차 키워드 매칭에 넣기 전에 이 고정 구문만 제거해 오탐을
+# 막는다(실제 LLM에 전달되는 질문 원문은 그대로, 매칭용 사본만 가공).
+_GAME_NAME_PATTERN = re.compile(r"전략적\s*팀\s*전투")
+
 _SYSTEM_PROMPT = (
     "다음은 TFT(전략적 팀 전투) 챗봇에 들어온 질문이다. "
     "아래 5개 카테고리 코드 중 정확히 하나만 다른 말 없이 출력해라.\n"
@@ -47,8 +55,11 @@ _SYSTEM_PROMPT = (
 def classify_by_keyword(query: str) -> str | None:
     """1차 분류: 정규식 키워드 매칭. 정확히 한 카테고리에만 매칭되면 그 카테고리를 반환하고,
     매칭이 없거나 여러 카테고리에 동시에 매칭되면(애매함) None을 반환해 2차 분류로 넘긴다."""
+    keyword_query = _GAME_NAME_PATTERN.sub("", query)
     matched = [
-        intent for intent, pattern in _KEYWORD_PATTERNS.items() if pattern.search(query)
+        intent
+        for intent, pattern in _KEYWORD_PATTERNS.items()
+        if pattern.search(keyword_query)
     ]
     return matched[0] if len(matched) == 1 else None
 

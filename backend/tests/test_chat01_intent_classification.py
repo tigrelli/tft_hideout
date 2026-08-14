@@ -52,6 +52,24 @@ def test_classify_by_keyword_returns_none_when_ambiguous_or_no_match() -> None:
     assert classify_by_keyword("이 조합에 넣을 아이템 뭐가 좋아?") is None
 
 
+# CHAT-21(PM 제보 2026-08-14, TEST-11 QA 중 발견): 게임 공식 한글 명칭
+# "전략적 팀 전투"를 그대로 쓴 질문이 "전략" 키워드에 걸려 조합 추천 경로로
+# 잘못 빠지던 회귀 — "TFT(전략적 팀 전투)는 어떤 게임인가요?" 같은 완전히
+# 무관한 질문에 조합 통계가 답변에 섞여 나왔다.
+def test_classify_by_keyword_ignores_official_game_name_phrase() -> None:
+    assert classify_by_keyword("TFT(전략적 팀 전투)는 어떤 게임인가요?") is None
+    assert classify_by_keyword("전략적 팀 전투 처음 시작하는데 뭐부터 해야해?") is None
+
+
+# 게임 명칭 구문을 제거한 뒤에도 실제로 "전략"을 물어보는 질문은 여전히 정상
+# 분류돼야 한다(회귀 방지 — 위 수정이 general_strategy 자체를 죽이면 안 됨).
+def test_classify_by_keyword_still_matches_strategy_keyword_outside_game_name() -> None:
+    assert (
+        classify_by_keyword("전략적 팀 전투에서 초반 전략 어떻게 짜야해?")
+        == INTENT_GENERAL_STRATEGY
+    )
+
+
 def test_classify_by_keyword_returns_none_for_champion_cost_query() -> None:
     # "챔피언"을 키워드로 추가하면 "이 챔피언 빌드 추천"(item_recommendation)
     # 같은 기존 케이스와 충돌해(둘 다 매칭 -> 모호) 오히려 분류 품질이
