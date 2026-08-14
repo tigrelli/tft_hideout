@@ -97,8 +97,19 @@ def test_verify_web_citation_passthrough_when_no_url_in_answer() -> None:
 
 def test_web_search_system_prompt_requires_citation_and_polite_tone() -> None:
     assert "존댓말" in WEB_SEARCH_SYSTEM_PROMPT
-    assert "출처 URL" in WEB_SEARCH_SYSTEM_PROMPT
+    assert "출처" in WEB_SEARCH_SYSTEM_PROMPT
     assert "확인되지 않았습니다" in WEB_SEARCH_SYSTEM_PROMPT
+
+
+# CHAT-20(PM 제보 2026-08-14): 실제로 답변에 쓰지 않은 무관한 검색 결과까지
+# "[출처](URL)"로 무조건 나열되던 문제 — 실제 사용한 출처만, 2개 이상이면
+# 번호로 구분하도록 프롬프트 규칙을 강화했는지 확인.
+def test_web_search_system_prompt_requires_citing_only_used_sources_with_numbering() -> (
+    None
+):
+    assert "실제로 답변에 근거로 사용한 출처만" in WEB_SEARCH_SYSTEM_PROMPT
+    assert "출처 1" in WEB_SEARCH_SYSTEM_PROMPT
+    assert "출처 2" in WEB_SEARCH_SYSTEM_PROMPT
 
 
 def test_assemble_web_search_system_turn_includes_few_shot() -> None:
@@ -177,6 +188,39 @@ def test_general_game_info_uses_web_search_not_internal_rag(
     assert " ".join(tokens) == (
         "Set 18은 2026-08-12에 출시되었습니다. (출처: https://a.example/1)"
     )
+
+
+# CHAT-20(PM 제보 2026-08-14): 사용자 메시지에 "TFT" 같은 스코핑 키워드가 없으면
+# ("언제 서비스가 종료되나요?") Tavily가 전혀 무관한 결과를 반환하던 문제 —
+# web_search_fn에 넘어가는 쿼리에 TFT 컨텍스트가 덧붙여지는지, 원래 질문
+# 텍스트도 여전히 포함되는지 확인.
+def test_general_game_info_web_search_query_is_scoped_with_tft_context(
+    seeded_patch_session: Session,
+) -> None:
+    captured: dict[str, str] = {}
+
+    def capturing_web_search_fn(query: str) -> list[WebSearchResult]:
+        captured["query"] = query
+        return []
+
+    def fake_stream_fn(system_prompt: str, user_message: str):
+        yield "답변입니다."
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "55555555-5555-5555-5555-555555555555",
+            "언제 서비스가 종료되나요?",
+            embed_fn=_fail_if_called("embed_fn"),
+            offtopic_confirm_fn=lambda text: False,
+            classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
+            search_fn=_fail_if_called("search_fn"),
+            web_search_fn=capturing_web_search_fn,
+            stream_fn=fake_stream_fn,
+        )
+    )
+    assert "TFT" in captured["query"]
+    assert "언제 서비스가 종료되나요?" in captured["query"]
 
 
 def test_general_game_info_records_chat_log_with_empty_retrieved_docs(

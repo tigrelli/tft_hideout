@@ -145,6 +145,16 @@ def stream_llm_answer(
             return
 
 
+# CHAT-20(PM 제보 2026-08-14): search_query_text를 그대로 Tavily에 보내면(내부
+# RAG doc_type 필터와 달리) 검색을 TFT로 좁혀줄 장치가 전혀 없어, 사용자 메시지
+# 자체에 "TFT" 같은 키워드가 없으면("언제 서비스가 종료되나요?") DHS 정부 셧다운·
+# 미국 세금 거주권처럼 전혀 무관한 검색 결과가 그대로 반환되던 문제가 있었다.
+# Tavily에 보내는 쿼리 문자열에만 컨텍스트를 덧붙이고, 프롬프트에 표시되는
+# 사용자 질문 원문(wrapped_text)은 그대로 유지한다.
+def _build_web_search_query_text(search_query_text: str) -> str:
+    return f"TFT(전략적 팀 전투) {search_query_text}"
+
+
 def _generate_web_search_answer(
     db: Session,
     *,
@@ -161,11 +171,12 @@ def _generate_web_search_answer(
     Tavily 웹 검색을 근거로 쓴다. 웹 검색 결과는 meta_document_embeddings에
     없어(캐시·후속질문이 참조하는 retrieved_doc_ids 대상이 아님) CHAT-08 캐시·
     CHAT-11 후속질문 result 사이드채널은 이번 범위에서 지원하지 않는다."""
+    web_search_query = _build_web_search_query_text(search_query_text)
     try:
-        web_results = web_search_fn(search_query_text)
+        web_results = web_search_fn(web_search_query)
     except Exception:  # noqa: BLE001 — Tavily 무료 티어 오류/한도 초과 시 폴백
         print(
-            f"TAVILY_SEARCH_ERROR query={search_query_text!r}",
+            f"TAVILY_SEARCH_ERROR query={web_search_query!r}",
             file=sys.stderr,
             flush=True,
         )
