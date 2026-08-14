@@ -47,6 +47,21 @@ _TFT_DOMAIN_PATTERN = re.compile(
     r"|효과|효능|스킬|설명"
 )
 
+# CHAT-19(PM 제보 2026-08-14): "현재 패치버전은?"류 질문에 이미 알고 있는
+# patches.is_current 값이 있는데도 1차 키워드 패턴(조합/아이템/증강체/메타)에
+# "패치"가 없어 2차 LLM 의도분류로 넘어가고, general_game_info(CHAT-17, Tavily
+# 웹검색 전용)로 오분류돼 무관한 웹검색 결과로 답하는 문제가 있었다. "몇 패치인지"를
+# 묻는 질문만 좁게 잡는다 — "이번 패치에 뭐가 바뀌었어?" 같은 패치노트류 질문은
+# 내부에 답할 데이터가 없어 이 패턴에 포함하지 않고 기존 general_game_info로
+# 그대로 보낸다(패치노트 자체가 chatbot 근거 데이터에 없음).
+_PATCH_VERSION_QUERY_PATTERN = re.compile(r"패치\s*버전|버전.*패치|몇\s*패치")
+
+
+def is_patch_version_query(normalized_text: str) -> bool:
+    """의도분류(CHAT-01)보다 먼저 걸러 이미 알고 있는 patch_version으로 결정론적으로
+    즉답하기 위한 감지 함수(chat_stream.py 조기 반환에서 사용)."""
+    return _PATCH_VERSION_QUERY_PATTERN.search(normalized_text) is not None
+
 
 @dataclass
 class PreprocessResult:

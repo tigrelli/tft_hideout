@@ -20,7 +20,11 @@ from services.chat_postprocessing import (
     postprocess_answer,
     strip_internal_doc_marker_leak,
 )
-from services.chat_preprocessing import get_conversation_history, preprocess_input
+from services.chat_preprocessing import (
+    get_conversation_history,
+    is_patch_version_query,
+    preprocess_input,
+)
 from services.current_patch import get_current_patch_version
 from services.hybrid_search import (
     filter_by_name_overlap,
@@ -51,6 +55,12 @@ NO_CURRENT_PATCH_MESSAGE = (
 FALLBACK_MESSAGE = (
     "죄송합니다, 일시적인 오류로 답변을 생성하지 못했습니다. 잠시 후 다시 시도해주세요."
 )
+
+
+def _patch_version_answer(patch_version: str) -> str:
+    """CHAT-19: 이미 조회해둔 patch_version으로 즉답한다(웹검색/LLM 호출 없음)."""
+    return f"현재 서비스에 반영된 기준 패치는 '{patch_version}' 패치입니다."
+
 
 MAX_LLM_ATTEMPTS = 2
 
@@ -239,7 +249,7 @@ def generate_answer_stream(
     있어 "왜 승률이 높은가" 같은 원인 분석 질문에 답할 재료가 아예 없다 — 후속
     질문 생성(chat_followups.generate_followup_questions)이 이 여부에 따라
     원인 분석형 후속 질문을 제안할지 판단하는 데 쓴다. 명확화/범위밖/
-    패치없음 조기 반환, Groq 완전 실패로 인한 폴백 메시지, retrieved_docs가
+    패치없음/패치버전질의(CHAT-19) 조기 반환, Groq 완전 실패로 인한 폴백 메시지, retrieved_docs가
     빈 턴("해당 정보는 확인되지 않았다" 류 답변)에는 채우지 않는다(LLM 부재
     없이 호출측 기본값 [] 그대로 유지 = FollowupChips hidden — 이 경우들은
     후속질문을 만들 실질적 내용이 없거나, 근거 문서가 없어 만들어봐야
@@ -257,6 +267,14 @@ def generate_answer_stream(
     patch_version = get_current_patch_version(db)
     if patch_version is None:
         yield NO_CURRENT_PATCH_MESSAGE
+        return
+
+    # CHAT-19: "현재 패치버전은?"류 질문은 의도분류(2차 LLM)로 넘어가면
+    # general_game_info(Tavily 웹검색 전용)로 오분류돼 무관한 검색 결과로
+    # 답하는 문제가 있었다. 이미 조회해둔 patch_version으로 검색/LLM 호출 없이
+    # 결정론적으로 즉답한다(다른 조기 반환과 동일하게 로깅·캐시 대상 아님).
+    if is_patch_version_query(preprocessed.normalized_text):
+        yield from _patch_version_answer(patch_version).split(" ")
         return
 
     # CHAT-08: 대화 이력이 없는 첫 턴 질문만 캐시 대상(같은 문장도 후속 턴에서는
@@ -379,7 +397,8 @@ def generate_answer_stream(
         result["retrieved_doc_types"] = {doc.doc_type for doc in retrieved_docs}
 
     # CHAT-09: chat_logs 적재는 의도분류·검색·답변생성이 전부 이뤄진 정상 흐름에서만
-    # 수행(명확화/범위밖/패치없음 조기 반환은 intent·patch_version이 없어 대상 아님).
+    # 수행(명확화/범위밖/패치없음 조기 반환은 intent·patch_version이 없어 대상 아님,
+    # 패치버전질의(CHAT-19)는 intent 없이 결정론적으로 즉답해 마찬가지로 대상 아님).
     record_chat_log(
         db,
         session_id=session_id,

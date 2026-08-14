@@ -201,6 +201,52 @@ def test_no_current_patch_returns_fixed_message(migrated_engine: Engine) -> None
     assert tokens == [NO_CURRENT_PATCH_MESSAGE]
 
 
+# CHAT-19: "현재 패치버전은?"류 질문은 의도분류(2차 LLM)로 넘어가면
+# general_game_info(웹검색 전용)로 오분류돼 무관한 결과로 답하던 문제가 있었다.
+# 이미 조회해둔 patch_version으로 classify_fn/search_fn/web_search_fn/stream_fn을
+# 전혀 부르지 않고 즉답하는지 확인한다.
+def test_patch_version_query_short_circuits_with_direct_answer(
+    seeded_patch_session: Session,
+) -> None:
+    tokens = list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "11111111-1111-1111-1111-111111111111",
+            "현재 패치버전은?",
+            embed_fn=_fail_if_called("embed_fn"),
+            offtopic_confirm_fn=lambda text: False,
+            classify_fn=_fail_if_called("classify_fn"),
+            search_fn=_fail_if_called("search_fn"),
+            web_search_fn=_fail_if_called("web_search_fn"),
+            stream_fn=_fail_if_called("stream_fn"),
+        )
+    )
+    assert "".join(tokens).replace(" ", "") != ""
+    assert "17.8" in "".join(tokens)
+
+
+# NO_CURRENT_PATCH_MESSAGE 조기 반환이 이 분기보다 먼저 확인돼야 한다(patch_version이
+# 아예 없으면 즉답할 값 자체가 없으므로).
+def test_patch_version_query_defers_to_no_current_patch_message_when_unset(
+    migrated_engine: Engine,
+) -> None:
+    with Session(migrated_engine) as session:
+        tokens = list(
+            generate_answer_stream(
+                session,
+                "11111111-1111-1111-1111-111111111111",
+                "현재 패치버전은?",
+                embed_fn=_fail_if_called("embed_fn"),
+                offtopic_confirm_fn=lambda text: False,
+                classify_fn=_fail_if_called("classify_fn"),
+                search_fn=_fail_if_called("search_fn"),
+                web_search_fn=_fail_if_called("web_search_fn"),
+                stream_fn=_fail_if_called("stream_fn"),
+            )
+        )
+    assert tokens == [NO_CURRENT_PATCH_MESSAGE]
+
+
 @pytest.fixture
 def seeded_patch_session(migrated_engine: Engine) -> Session:
     with Session(migrated_engine) as session:

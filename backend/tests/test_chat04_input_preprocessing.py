@@ -14,6 +14,7 @@ from services.chat_preprocessing import (
     confirm_off_topic,
     get_conversation_history,
     is_off_topic,
+    is_patch_version_query,
     normalize_query,
     preprocess_input,
     wrap_user_message,
@@ -122,6 +123,39 @@ def test_preprocess_input_off_topic_flag_is_set_on_result() -> None:
     result = preprocess_input("오늘 점심 뭐 먹지")
     assert result.is_off_topic is True
     assert result.needs_clarification is False
+
+
+# CHAT-19(PM 제보 2026-08-14): "현재 패치버전은?"류 질문이 general_game_info
+# (Tavily 웹검색 전용)로 오분류돼 무관한 결과로 답하던 문제 — 의도분류 이전에
+# 좁게 감지해 이미 알고 있는 patch_version으로 즉답하기 위한 패턴.
+@pytest.mark.parametrize(
+    "query",
+    [
+        "현재 패치버전은?",
+        "지금 패치 버전이 뭐야?",
+        "몇 패치야?",
+        "지금 몇패치야?",
+        "패치버전 알려줘",
+    ],
+)
+def test_is_patch_version_query_flags_version_questions(query: str) -> None:
+    assert is_patch_version_query(query) is True
+
+
+# 패치노트류 질문은 내부에 답할 데이터가 없어(챗봇 근거 데이터에 패치노트 자체가
+# 없음) 이 패턴에 포함하지 않고 기존 general_game_info 경로로 그대로 보낸다.
+@pytest.mark.parametrize(
+    "query",
+    [
+        "이번 패치에 뭐가 바뀌었어?",
+        "다음 패치는 언제야?",
+        "지금 메타에서 강한 조합 추천해줘",
+    ],
+)
+def test_is_patch_version_query_does_not_flag_other_patch_questions(
+    query: str,
+) -> None:
+    assert is_patch_version_query(query) is False
 
 
 # ---- CHAT-16: 2차 LLM 오프토픽 검증(test-scenarios.md CHAT-04 #8~11) -------------
