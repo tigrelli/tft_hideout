@@ -44,6 +44,16 @@ PM이 로컬 도커를 기동해줘서 `docker-compose.test.yml` test-db(5433)�
 - `batch` 전체 pytest **130/130 통과**(회귀 없음 — 이번 TASK는 batch 코드를 건드리지 않았으나 공유 모듈 영향 확인 차 함께 실행)
 - 검증 후 `docker compose -f docker-compose.test.yml down`으로 컨테이너 정리
 
+## 배포 후 프로덕션 스모크 체크
+
+`render.yaml`(`branch: main`, `autoDeploy: true`, `rootDir: backend`)에 따라 push 시 Render가 자동 재배포됨을 확인. 배포 완료 후 프로덕션에 직접 확인:
+
+- `GET /api/v1/catalog/patches/current` → `{"version":"17.9",...}` (사이트 상단 표시와 일치)
+- `POST /api/v1/chat/message` `{"message":"현재 패치버전은?"}` → `"현재 서비스에 반영된 기준 패치는 '17.9' 패치입니다."` 즉답(스크린샷 제보의 웹검색 오답 흐름 재현 안 됨, Groq/Tavily 호출 없어 지연도 없음)
+- 이 조기 반환 경로는 `chat_logs` 미적재 설계라 프로덕션 DB에 부가 영향 없음
+
+Cloudflare(프론트엔드)는 이번 변경 대상이 아니라 별도 확인 불필요.
+
 ## 한계
 
 - "패치 버전"과 "패치노트(변경사항)"를 구분하는 정규식 판단이라, "이번 패치 버전에서 바뀐 점은?"처럼 두 의미가 섞인 질문은 여전히 즉답(버전만) 대상으로 분류될 수 있다 — 실사용 중 이런 질문이 실제로 나오면 후속 TASK로 재조정 필요.
