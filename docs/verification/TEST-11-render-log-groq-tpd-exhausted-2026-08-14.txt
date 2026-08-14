@@ -1,0 +1,50 @@
+2026-08-14T01:17:47.81888075Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:17:52.597822121Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:24:10.381722554Z ==> Deploying...
+2026-08-14T01:24:10.579968057Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2026-08-14T01:24:18.455533912Z ==> Running 'uvicorn main:app --host 0.0.0.0 --port $PORT'
+2026-08-14T01:24:31.821280866Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:24:32.16897726Z INFO:     Started server process [61]
+2026-08-14T01:24:32.16899792Z INFO:     Waiting for application startup.
+2026-08-14T01:24:32.169234346Z INFO:     Application startup complete.
+2026-08-14T01:24:32.259542186Z INFO:     Uvicorn running on http://0.0.0.0:10000 (Press CTRL+C to quit)
+2026-08-14T01:24:32.655521963Z INFO:     127.0.0.1:53102 - "HEAD / HTTP/1.1" 404 Not Found
+2026-08-14T01:24:39.181157689Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:24:40.698031249Z INFO:     Shutting down
+2026-08-14T01:24:40.798548247Z INFO:     Waiting for application shutdown.
+2026-08-14T01:24:40.79870194Z INFO:     Application shutdown complete.
+2026-08-14T01:24:40.798761151Z INFO:     Finished server process [43]
+2026-08-14T01:24:41.264473413Z ==> Your service is live 🎉
+2026-08-14T01:24:41.37036544Z INFO:     34.82.93.227:0 - "GET / HTTP/1.1" 404 Not Found
+2026-08-14T01:24:41.474032471Z ==> 
+2026-08-14T01:24:41.476986587Z ==> ///////////////////////////////////////////////////////////
+2026-08-14T01:24:41.479414433Z ==> 
+2026-08-14T01:24:41.481839538Z ==> Available at your primary URL https://tft-hideout-backend.onrender.com
+2026-08-14T01:24:41.484155932Z ==> 
+2026-08-14T01:24:41.486303333Z ==> ///////////////////////////////////////////////////////////
+2026-08-14T01:25:00.8890424Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:25:24.115428924Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:25:45.465440491Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:26:06.888844339Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:27:19.076273175Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:27:21.248006692Z GROQ_STREAM_ERROR attempt=1/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99798, Requested 3527. Please try again in 47m52.8s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:27:21.319777455Z GROQ_STREAM_ERROR attempt=2/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99797, Requested 3493. Please try again in 47m22.56s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:27:27.713177847Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:27:30.546063337Z GROQ_STREAM_ERROR attempt=1/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99972, Requested 3493. Please try again in 49m53.76s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:27:30.626075549Z GROQ_STREAM_ERROR attempt=2/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99972, Requested 3493. Please try again in 49m53.76s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:27:41.668969781Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:27:43.547814796Z GROQ_STREAM_ERROR attempt=1/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99957, Requested 1628. Please try again in 22m49.44s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:27:43.622291534Z GROQ_STREAM_ERROR attempt=2/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99957, Requested 1662. Please try again in 23m18.816s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:28:06.201253045Z INFO:     124.49.66.157:0 - "GET /health HTTP/1.1" 200 OK
+2026-08-14T01:28:37.637920154Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:28:39.569872471Z GROQ_STREAM_ERROR attempt=1/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99987, Requested 1662. Please try again in 23m44.736s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:28:39.639972243Z GROQ_STREAM_ERROR attempt=2/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99987, Requested 1662. Please try again in 23m44.736s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:28:54.29146685Z INFO:     124.49.66.157:0 - "GET /api/v1/catalog/patches/current HTTP/1.1" 200 OK
+2026-08-14T01:28:54.584509106Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:28:56.579398933Z GROQ_STREAM_ERROR attempt=1/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99967, Requested 1628. Please try again in 22m58.08s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:28:56.702921736Z GROQ_STREAM_ERROR attempt=2/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99967, Requested 1628. Please try again in 22m58.08s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:29:29.230148867Z INFO:     124.49.66.157:0 - "POST /api/v1/chat/message HTTP/1.1" 200 OK
+2026-08-14T01:29:31.046639967Z GROQ_STREAM_ERROR attempt=1/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99927, Requested 1662. Please try again in 22m52.896s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:29:31.121882994Z GROQ_STREAM_ERROR attempt=2/2 yielded_any=False type=RateLimitError error=RateLimitError("Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kyvzsmt7eds9ty4gzngr1xte` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99927, Requested 1628. Please try again in 22m23.52s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}")
+2026-08-14T01:29:37.66274023Z ==> Detected service running on port 10000
+2026-08-14T01:29:38.031959782Z ==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
