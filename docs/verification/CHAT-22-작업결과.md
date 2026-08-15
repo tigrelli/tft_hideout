@@ -1,7 +1,7 @@
 # CHAT-22 : 작업결과
 
 - **TASK**: 일반 게임 정보 웹검색 출처 신뢰도 라벨링
-- **상태**: PM 확인 요청 중(구현·자체검증·도커 재검증 완료)
+- **상태**: 완료(PM 승인 2026-08-15)
 - **선행 TASK**: CHAT-17, CHAT-20 (TEST-11 카테고리 B QA 실행 중 발견해 신설)
 - **근거 문서**: TEST-11 카테고리 B QA 채점 중 발견(2026-08-15), `docs/reference/policies.md` 14번(웹 검색 근거 원칙)
 - **변경 파일**: `backend/services/web_search.py`, `backend/services/prompt_assembly.py`, `backend/tests/test_chat17_web_search.py`, `TFT_Hideout_WBS.xlsx`(CHAT-22 신규 행), `진행현황.md`
