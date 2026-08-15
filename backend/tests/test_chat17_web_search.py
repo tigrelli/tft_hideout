@@ -26,7 +26,11 @@ from services.prompt_assembly import (
     assemble_web_search_system_turn,
     assemble_web_search_user_turn,
 )
-from services.web_search import WebSearchResult, verify_web_citation
+from services.web_search import (
+    WebSearchResult,
+    is_authoritative_source,
+    verify_web_citation,
+)
 
 
 def _fail_if_called(name: str):
@@ -92,6 +96,31 @@ def test_verify_web_citation_passthrough_when_no_url_in_answer() -> None:
     assert verify_web_citation(answer, []) == answer
 
 
+# ---- web_search.is_authoritative_source (CHAT-22) ---------------------------------
+
+
+def test_is_authoritative_source_matches_known_tft_sites() -> None:
+    assert is_authoritative_source("https://op.gg/tft/some-page") is True
+    assert (
+        is_authoritative_source(
+            "https://teamfighttactics.leagueoflegends.com/en-us/news/x"
+        )
+        is True
+    )
+    assert is_authoritative_source("https://www.lolchess.gg/guide") is True
+
+
+def test_is_authoritative_source_matches_subdomains() -> None:
+    assert is_authoritative_source("https://na.op.gg/tft") is True
+
+
+def test_is_authoritative_source_rejects_unknown_domain() -> None:
+    # CHAT-22 실사례: 개인 블로그(goo-gle.tistory.com)를 근거로 상점 잠금 기능에
+    # 대한 사실과 다른 단정적 답변이 나온 것을 계기로 신설.
+    assert is_authoritative_source("https://goo-gle.tistory.com/44") is False
+    assert is_authoritative_source("https://namu.wiki/w/전략적 팀 전투") is False
+
+
 # ---- prompt_assembly: 웹검색 전용 조립 ----------------------------------------------
 
 
@@ -129,6 +158,32 @@ def test_assemble_web_search_user_turn_lists_results_with_source() -> None:
     assert "[웹 검색 결과]" in turn
     assert "제목1" in turn and "https://a.example/1" in turn
     assert "제목2" in turn and "https://a.example/2" in turn
+
+
+# CHAT-22(TEST-11 카테고리 B QA에서 발견, 2026-08-15): 저신뢰 출처(개인 블로그)
+# 하나만 근거로 게임 시스템 규칙을 단정한 오답 사례 — 출처 신뢰도 라벨이
+# 붙어 프롬프트에 전달되는지 확인.
+def test_assemble_web_search_user_turn_labels_authoritative_and_community_sources() -> (
+    None
+):
+    results = [
+        WebSearchResult(
+            title="공식", url="https://op.gg/tft/page", content="공식 내용"
+        ),
+        WebSearchResult(
+            title="블로그", url="https://goo-gle.tistory.com/44", content="블로그 내용"
+        ),
+    ]
+    turn = assemble_web_search_user_turn(results, [], wrap_user_message("질문"))
+    assert "[공식/전문] 공식" in turn
+    assert "[커뮤니티/미검증] 블로그" in turn
+
+
+def test_web_search_system_prompt_instructs_hedging_for_community_only_sources() -> (
+    None
+):
+    assert "커뮤니티/미검증" in WEB_SEARCH_SYSTEM_PROMPT
+    assert "공식/전문" in WEB_SEARCH_SYSTEM_PROMPT
 
 
 def test_assemble_web_search_user_turn_shows_placeholder_when_no_results() -> None:

@@ -6,11 +6,42 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 DEFAULT_MAX_RESULTS = 3
+
+# CHAT-22: Tavily는 도메인 신뢰도를 구분하지 않고 결과를 반환하므로, 라이엇
+# 공식·TFT 전문 데이터 사이트만 별도로 표시해 프롬프트가 개인 블로그·일반
+# 커뮤니티 위키 출처를 단정적으로 인용하지 않도록 유도한다(TEST-11 카테고리 B
+# QA에서 저신뢰 블로그 하나만 근거로 "상점에서 특정 챔피언을 안 뜨게 잠글 수
+# 있다"는 사실과 다른 단정적 답변이 나온 사례 발견, 2026-08-15).
+_AUTHORITATIVE_DOMAINS = frozenset(
+    {
+        "teamfighttactics.leagueoflegends.com",
+        "leagueoflegends.com",
+        "lolchess.gg",
+        "op.gg",
+        "mobalytics.gg",
+        "tactics.tools",
+        "metatft.com",
+    }
+)
+
+
+def is_authoritative_source(url: str) -> bool:
+    """url의 호스트가 공식/TFT 전문 정보 사이트 allowlist에 속하는지 판별한다
+    (서브도메인 포함, 예: 'na.op.gg' -> 'op.gg' 매칭)."""
+    host = urlparse(url).netloc.lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return any(
+        host == domain or host.endswith(f".{domain}")
+        for domain in _AUTHORITATIVE_DOMAINS
+    )
+
 
 UNVERIFIED_SOURCE_WARNING = "(주의: 위 답변에 포함된 출처 링크 중 일부는 실제 검색 결과에서 확인되지 않았습니다.)"
 
