@@ -331,10 +331,76 @@ def build_playstyle_text(deck: dict[str, Any], champion_names: dict[str, str]) -
     return " · ".join(parts) if parts else "정보 없음"
 
 
+# DATA-21(2026-08-16, PM 요청): op.gg 웹사이트와 티어 배지가 다르게 보인다는
+# PM 제보를 조사한 결과, op.gg tft_list_meta_decks(MCP 공개 도구)는 랭크 필터
+# 없이 정확히 10개 조합만 반환해(DATA-05 스파이크) op.gg 웹사이트(20개 이상,
+# 랭크 구간 필터 가능)와 애초에 모집단 자체가 다름을 확인 — op.gg 웹사이트와
+# 완전히 일치시킬 방법은 없다. 대신 이 배치가 실제로 확보한 표본 안에서라도
+# avg_place·win_rate가 뱃지와 어긋나지 않도록(예: 승률이 더 낮은 조합이 더
+# 높은 뱃지를 받는 경우 방지) op.gg가 준 opTier를 그대로 쓰지 않고 자체
+# 상대순위로 재계산한다(PM 승인 2026-08-16).
+_TIER_LABELS: list[tuple[float, str]] = [
+    (0.10, "OP"),
+    (0.30, "S"),
+    (0.60, "A"),
+    (0.85, "B"),
+    (1.0, "C"),
+]
+
+
+def _ascending_ranks(values: list[float]) -> list[float]:
+    """값이 작을수록 좋은 순위(0=최상위)를 매긴다. 동점은 평균 순위를 공유한다
+    (예: 공동 0위 2개는 둘 다 0.5) — 입력 순서(리스트 앞뒤)에 따라 결과가
+    갈리지 않게 하기 위함. 순서 기반 순위를 썼을 때 avg_place가 동점인 두
+    조합 중 하나에 win_rate가 없으면, 단지 리스트에 먼저 나왔다는 이유로
+    더 좋은 티어를 받는 문제가 단위 테스트로 실제 확인되어 이 방식으로 수정."""
+    n = len(values)
+    order = sorted(range(n), key=lambda i: values[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        avg_rank = (i + j) / 2
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg_rank
+        i = j + 1
+    return ranks
+
+
+def assign_self_tiers(rows: list[dict[str, Any]]) -> None:
+    """같은 배치(패치 1회 수집 단위, 통상 10개)의 comp 행들에 avg_place·win_rate
+    기반 자체 상대순위 tier_rank를 매겨 rows를 제자리에서(in-place) 갱신한다.
+    avg_place 오름차순 순위 + win_rate 내림차순 순위를 더한 종합순위(Borda
+    count 방식)로 정렬한 뒤, 순위를 백분위(구간 중앙값 기준)로 환산해
+    OP(상위 10%)/S(~30%)/A(~60%)/B(~85%)/C(나머지) 5단계로 나눈다. win_rate가
+    없는 행(op.gg 응답 결측)은 해당 축에서 항상 최하위로 취급한다."""
+    n = len(rows)
+    if n == 0:
+        return
+    place_ranks = _ascending_ranks([row["avg_place"] for row in rows])
+    win_rate_sort_key = [
+        -(row["win_rate"] if row["win_rate"] is not None else float("-inf"))
+        for row in rows
+    ]
+    win_rate_ranks = _ascending_ranks(win_rate_sort_key)
+    combined_ranks = [place_ranks[i] + win_rate_ranks[i] for i in range(n)]
+
+    order = sorted(range(n), key=lambda i: combined_ranks[i])
+    for position, idx in enumerate(order):
+        percentile = (position + 0.5) / n
+        for cutoff, label in _TIER_LABELS:
+            if percentile <= cutoff:
+                rows[idx]["tier_rank"] = label
+                break
+
+
 def comp_rows(
     meta_decks: dict[str, Any], champion_names: dict[str, str], lang: str = "ko_KR"
 ) -> list[dict[str, Any]]:
-    """op.gg tft_list_meta_decks 응답에서 조합 목록을 만든다."""
+    """op.gg tft_list_meta_decks 응답에서 조합 목록을 만든다. tier_rank는
+    op.gg opTier가 아니라 assign_self_tiers()의 자체 계산 값이다(DATA-21)."""
     rows = []
     for deck in meta_decks.get("data", []):
         stat = deck.get("stat", {})
@@ -344,7 +410,7 @@ def comp_rows(
             {
                 "riot_comp_id": deck["id"],
                 "name": name_map.get(lang) or next(iter(name_map.values()), deck["id"]),
-                "tier_rank": _or_default(stat.get("opTier"), "unknown"),
+                "tier_rank": "unknown",
                 "avg_place": _or_default(deck_stat.get("avgPlacement"), 0.0),
                 "play_rate": _or_default(deck_stat.get("pickRate"), 0.0),
                 "win_rate": deck_stat.get("winRate"),
@@ -352,6 +418,7 @@ def comp_rows(
                 "updated_at": _parse_updated_at(meta_decks),
             }
         )
+    assign_self_tiers(rows)
     return rows
 
 

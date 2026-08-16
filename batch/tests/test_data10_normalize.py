@@ -7,6 +7,7 @@ patch_version 태깅을 검증한다. 순수 변환 함수는 합성 fixture로,
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from db_session import models
 from normalize import (
+    assign_self_tiers,
     augment_rows,
     build_playstyle_text,
     cdragon_asset_url,
@@ -438,11 +440,86 @@ def test_comp_rows_maps_fields_from_deck() -> None:
     row = rows[0]
     assert row["riot_comp_id"] == "fake-origin-hash-1"
     assert row["name"] == "가짜 조합"
-    assert row["tier_rank"] == "OP"
+    # DATA-21: tier_rank는 op.gg opTier("OP")가 아니라 assign_self_tiers()의 자체
+    # 계산 값. 배치에 조합이 1개뿐이면 백분위(구간 중앙값) 0.5로 "A" 구간에 든다.
+    assert row["tier_rank"] == "A"
     assert row["avg_place"] == 3.1
     assert row["play_rate"] == 0.02
     assert row["win_rate"] == 0.19
     assert row["updated_at"] == datetime(2026, 8, 1, tzinfo=UTC)
+
+
+# ---- DATA-21: assign_self_tiers 단위 테스트 --------------------------------
+
+
+def _comp(avg_place: float, win_rate: float | None) -> dict[str, Any]:
+    return {"avg_place": avg_place, "win_rate": win_rate}
+
+
+def test_assign_self_tiers_empty_list_is_no_op() -> None:
+    rows: list[dict[str, Any]] = []
+    assign_self_tiers(rows)
+    assert rows == []
+
+
+def test_assign_self_tiers_single_comp_lands_in_middle_tier() -> None:
+    rows = [_comp(avg_place=3.1, win_rate=0.19)]
+    assign_self_tiers(rows)
+    assert rows[0]["tier_rank"] == "A"
+
+
+def test_assign_self_tiers_best_and_worst_get_extreme_tiers() -> None:
+    """avg_place·win_rate 둘 다 압도적으로 좋은/나쁜 조합은 각각 OP/C에 배정된다."""
+    rows = [
+        _comp(avg_place=2.0, win_rate=0.40),  # 압도적 1위
+        _comp(avg_place=3.5, win_rate=0.20),
+        _comp(avg_place=3.7, win_rate=0.18),
+        _comp(avg_place=4.0, win_rate=0.15),
+        _comp(avg_place=4.2, win_rate=0.12),
+        _comp(avg_place=4.5, win_rate=0.10),
+        _comp(avg_place=4.8, win_rate=0.08),
+        _comp(avg_place=5.0, win_rate=0.06),
+        _comp(avg_place=5.3, win_rate=0.05),
+        _comp(avg_place=6.0, win_rate=0.02),  # 압도적 꼴찌
+    ]
+    assign_self_tiers(rows)
+    assert rows[0]["tier_rank"] == "OP"
+    assert rows[-1]["tier_rank"] == "C"
+    # 10개 배치는 (0.5/10=0.05, ..., 9.5/10=0.95) 백분위로 나뉘어
+    # OP 1개·S 2개·A 3개·B 3개·C 1개로 분포된다.
+    tiers = [row["tier_rank"] for row in rows]
+    assert tiers.count("OP") == 1
+    assert tiers.count("S") == 2
+    assert tiers.count("A") == 3
+    assert tiers.count("B") == 3
+    assert tiers.count("C") == 1
+
+
+def test_assign_self_tiers_missing_win_rate_ranks_last_on_that_axis() -> None:
+    """win_rate가 None인 조합은 avg_place가 아무리 좋아도 그 축에서 최하위 취급되어
+    win_rate가 있는 동급 조합보다 낮은 티어를 받는다."""
+    rows = [
+        _comp(avg_place=3.0, win_rate=None),
+        _comp(avg_place=3.0, win_rate=0.20),
+    ]
+    assign_self_tiers(rows)
+    # avg_place는 동점(공동 0위)이라 win_rate 축에서만 갈린다 -> win_rate 있는 쪽이 더 좋은 티어.
+    assert rows[1]["tier_rank"] in {"OP", "S"}
+    assert rows[0]["tier_rank"] in {"A", "B", "C"}
+
+
+def test_assign_self_tiers_trades_off_place_against_win_rate() -> None:
+    """avg_place는 최고지만 win_rate는 최저인 조합과, 그 반대(avg_place 최저·win_rate
+    최고)인 조합이 종합순위(Borda count)로는 동점이 되어 극단 티어(OP/C) 둘 다
+    아닌 중간 티어에 배정됨을 확인 — 한쪽 지표만으로 뱃지가 정해지지 않는다는 뜻."""
+    rows = [
+        _comp(avg_place=2.0, win_rate=0.05),  # 등수는 최고, 승률은 최저
+        _comp(avg_place=6.0, win_rate=0.40),  # 등수는 최저, 승률은 최고
+        _comp(avg_place=4.0, win_rate=0.20),  # 둘 다 중간
+    ]
+    assign_self_tiers(rows)
+    tiers = {row["tier_rank"] for row in rows}
+    assert not (tiers & {"OP", "C"})  # 셋 다 극단 티어를 받지 않아야 함
 
 
 def test_comp_champion_rows_extracts_units() -> None:
