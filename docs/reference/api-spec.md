@@ -41,6 +41,6 @@
 | op.gg MCP | 배치(GitHub Actions 크론, 매시간) | 메타 데이터 5종 도구(DATA-08) + `tft_get_play_style`은 PGA-07에서 실시간 호출(PUUID 필요, 2026-08-04 DATA-05 스파이크 결정) |
 | Riot API (Match-V1) | 실시간(분석 요청 시점) | 개인 매치 조회 전용 |
 | Community Dragon(`raw.communitydragon.org/latest/cdragon/tft/{lang}.json`) | 배치(보조 신호) | ID↔이름 매핑. 공식 "TFT DDragon" 분리 엔드포인트는 2026-08-04 기준 미확인(DATA-06 스파이크, Set 18 런칭 2026-08-12 이후 재확인 필요) — 대안으로 Community Dragon 사용, op.gg 응답의 `type: "cdragon-item"`과 세트 식별자(`mutator`/`teamCode` "TFTSet17")가 일치함을 확인 |
-| Groq API | 실시간(SSE 스트리밍) | sLLM 추론(Llama 3.3 70B) |
+| Groq API | 실시간(SSE 스트리밍) | sLLM 추론(openai/gpt-oss-120b, 2026-08-16부터 — 이전 Llama 3.3 70B는 Groq가 폐기, CHAT-23. 무료 티어 RPM 30·RPD 1K·TPM 8K·TPD 200K) |
 | Hugging Face Inference API | 배치+실시간 | 임베딩(BGE-M3, 1024차원). 레거시 `api-inference.huggingface.co`는 DNS부터 안 뜸(2026-08-04 확인) — 신규 엔드포인트 `https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction` 사용(`inputs`에 문자열 리스트 전달 시 항상 `list[list[float]]` 응답) |
 | Tavily Search API(`https://api.tavily.com/search`) | 실시간(챗봇 `general_game_info` 의도 전용) | 웹 검색(SET-17). `POST`에 `api_key`/`query`/`max_results` 전달, 응답 `results[].{title,url,content}`. 무료 티어 월 1,000크레딧(매월 갱신). 실패 시 재시도 없이 즉시 FALLBACK_MESSAGE 폴백(CHAT-17) |

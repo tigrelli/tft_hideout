@@ -83,7 +83,7 @@
 | 구조화 DB | PostgreSQL (Supabase 무료) |
 | 벡터 DB | pgvector (Supabase 내장, HNSW 인덱스) |
 | 캐시 | PostgreSQL 테이블 (`chat_answer_cache`, `puuid_cache`) — 별도 캐시 인프라 없이 구조화 DB 재사용 (v1.7, 이전 Redis/Upstash) |
-| LLM 추론 | Groq API 무료 티어 · Llama 3.3 70B Versatile |
+| LLM 추론 | Groq API 무료 티어 · openai/gpt-oss-120b(2026-08-16부터, 이전 Llama 3.3 70B Versatile는 Groq가 폐기) |
 | 임베딩 | BGE-M3 (Hugging Face Inference API) |
 | RAG 프레임워크 | LangChain (Python) |
 | 웹 검색 API | Tavily 무료 티어(월 1,000크레딧, 매월 갱신) — 내부 RAG(comps/item_builds/augments/comp_champions 등)로 답할 수 없는 "일반 게임 정보" 질문(시즌 일정 등) 전용 5번째 챗봇 의도(`general_game_info`)의 근거 소스, CHAT-16~18에서 신설(v1.11) |
@@ -227,3 +227,4 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.11 | 2026-08-12 | PM 요청 반영 — 챗봇이 "시즌 종료는 언제?"처럼 TFT 관련이지만 내부 RAG로는 답할 수 없는 질문에 웹 검색으로 답할 수 있는지 문의 → 스코프 검토 후 CHAT-16(오프토픽 판별 2차 LLM 검증)·SET-17(Tavily API 키 발급)·CHAT-17(웹검색 기반 5번째 의도 `general_game_info` 신설)·CHAT-18(CHAT-17 실사용 검증 중 발견한 비활성 조합 근거검증·랭킹 정합성 버그 수정) 순으로 구현·완료. 3장 기술스택 표에 "웹 검색 API"(Tavily) 행 신규 추가. `docs/reference/glossary.md`의 "챗봇 의도 분류"를 4종→5종으로, `docs/reference/api-spec.md` 외부 연동 표에 Tavily 행 추가, `docs/reference/policies.md`에 14번(웹 검색 근거 원칙) 신설(모두 이 버전과 함께 갱신). 전체 113개 TASK로 갱신(신규 4개: SET-17·CHAT-16·CHAT-17·CHAT-18) |
 | v1.12 | 2026-08-12 | PM 요청 반영 — v1.11이 갱신한 `/docs/reference/*.md`는 경량 요약본일 뿐이라, 근거 문서 원본(확정본)도 함께 버전을 올려달라는 요청에 따라 `TFT_sLLM_개발설계서_v1.8.docx` 작성: 표지 버전·작성일, 3장 개발 스택 확정 표(웹 검색 API 행), 3장 아키텍처 원칙 문단("외부 API를 질문마다 직접 호출하지 않는다"에 general_game_info 예외 명시), 외부 데이터 소스 목록, 4.4절 의도 분류·검색 파이프라인 설명(5개 카테고리, 웹검색 전용 경로 신설 bullet), 의도별 검색대상 표(일반 게임 정보 행), 4.4.2 범위 밖 질문 정책(2차 LLM 검증), 4.4.3 근거 검증(URL 기반 사후검증), 5.1 comps 테이블 컬럼(is_active, DATA-17 도입분 최초 문서화), 외부 서비스 무료 티어 한도 표(Tavily 행)까지 갱신(python-docx로 기존 서식 유지한 채 편집, 새 텍스트만 교체·삽입 — 그림 개체 등은 변경 없음). 구버전 v1.7은 `/docs/archive/`로 이동, `/docs/source/`엔 v1.8만 유지. 1장 문서 목록의 파일명 표기를 v1.8로 갱신. **참고**: 이번 작업 중 1장의 `TFT_sLLM_IA_v1.1.docx` 표기가 실제 `/docs/source/` 파일(v1.2, v1.7 changelog가 이미 "IA v1.2로 교체"라고 기록한 바로 그 파일)과 어긋나 있는 것을 발견했으나 이번 세션 범위(웹검색 기능) 밖이라 손대지 않음 — 별도로 확인 필요 |
 | v1.13 | 2026-08-12 | PM 요청 반영 — v1.12에서 발견만 하고 넘어갔던 1장 `TFT_sLLM_IA_v1.1.docx` 표기 오류를 마저 수정(실제 파일·파일시스템은 이미 v1.2가 맞았고 문서 표기만 안 고쳐져 있었음, `/docs/archive/`에도 v1.0·v1.1 둘 다 정상 보관 중이라 파일 이동은 불필요 — CLAUDE.md 1장 텍스트 한 줄만 정정) |
+| v1.14 | 2026-08-16 | PM 긴급 요청 반영 — Groq가 2026-06-17 공지·2026-08-16(당일) 폐기한 `llama-3.3-70b-versatile`을 권장 대체 모델 `openai/gpt-oss-120b`(정식 등급, 무료 티어 TPD 200,000으로 기존 100,000 대비 2배, 프리뷰 등급 `qwen/qwen3.6-27b`는 비채택)로 교체(CHAT-23). 3장 기술스택 표의 "LLM 추론" 행 갱신. 코드 변경은 `backend/services/groq_client.py`의 `GROQ_MODEL` 상수 한 곳뿐(모든 Groq 호출 경로가 공유). 상세: `docs/verification/CHAT-23-작업결과.md` |

@@ -7,7 +7,7 @@
 
 | 용어 | 정의 |
 |---|---|
-| sLLM | 소형 언어 모델. Groq 무료 티어가 호스팅하는 오픈소스 모델(Llama 3.3 70B 등) 사용 |
+| sLLM | 소형 언어 모델. Groq 무료 티어가 호스팅하는 오픈소스 모델(openai/gpt-oss-120b, 2026-08-16부터. 이전 Llama 3.3 70B는 Groq가 폐기, CHAT-23) 사용 |
 | RAG | 검색 증강 생성. 관련 문서를 먼저 검색하고 그 결과를 근거로 LLM이 답변 생성 |
 | 패치(patch) | TFT 밸런스 업데이트 단위(약 2주 주기). 모든 레코드에 `patch_version` 태깅 |
 | Personal Key | Riot API 키 단계. 심사 없이 발급, 레이트리밋 Development Key와 동일(상향 불가), 개인/소규모 비공개 커뮤니티 용도 |
