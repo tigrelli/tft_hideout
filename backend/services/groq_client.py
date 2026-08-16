@@ -6,6 +6,16 @@ from groq import Groq
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 
+# CHAT-23(2026-08-16): gpt-oss-120b는 리즈닝 모델이라 최종 답변 전에 별도
+# reasoning 토큰을 먼저 소비한다(예: 단순 분류 질문에도 12~52 reasoning
+# 토큰 관측). 이전 모델(llama-3.3-70b-versatile) 기준으로 정해졌던
+# max_tokens=20은 reasoning 토큰만으로 전부 소진되어 content가 빈 문자열로
+# 잘리는 회귀가 실측 확인됨(finish_reason="length"). reasoning_effort="low"로
+# reasoning 토큰을 줄이고, max_tokens=100으로 올려 관측된 최대치(52)에
+# 여유를 둔다(TEST-11 재개 중 발견, 실제 API 호출로 검증).
+_SHORT_CALL_MAX_TOKENS = 100
+_SHORT_CALL_REASONING_EFFORT = "low"
+
 
 @lru_cache
 def _get_client() -> Groq:
@@ -13,14 +23,16 @@ def _get_client() -> Groq:
 
 
 def call_groq_chat(
-    system_prompt: str, user_message: str, *, max_tokens: int = 20
+    system_prompt: str, user_message: str, *, max_tokens: int = _SHORT_CALL_MAX_TOKENS
 ) -> str:
     """Groq sLLM 채팅 완성 호출. 실패 시 예외를 그대로 던지며,
     폴백 처리는 호출측(예: intent_classification.classify_by_llm,
-    chat_followups.generate_followup_questions)에서 담당한다. 기본
-    max_tokens=20은 intent_classification의 한 단어 응답 기준(기존 동작 유지)."""
+    chat_followups.generate_followup_questions)에서 담당한다. 짧고 구조화된
+    응답(분류 토큰 등)이 기대되는 호출 전용이라 reasoning_effort="low"를
+    고정 적용한다."""
     response = _get_client().chat.completions.create(
         model=GROQ_MODEL,
+        reasoning_effort=_SHORT_CALL_REASONING_EFFORT,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
