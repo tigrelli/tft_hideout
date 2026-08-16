@@ -37,6 +37,13 @@ export default function Home() {
     <div>
       <div className="mb-4">
         <PatchBadge version={tierlist?.patch_version ?? null} />
+        {/* FE-16(2026-08-16, PM 요청): 티어 배지가 op.gg 공식 웹사이트와 다르게 보인다는
+            제보를 조사한 결과 데이터 소스 자체가 다름을 확인(DATA-21 작업결과 참고) —
+            DATA-21에서 뱃지를 자체 계산으로 전환한 사실을 사용자에게 안내한다. */}
+        <p className="mt-2 text-caption text-text-tertiary">
+          티어 배지는 op.gg 공개 데이터(MCP)의 승률·평균 등수를 바탕으로 자체
+          계산한 값으로, op.gg 공식 웹사이트와 다를 수 있습니다.
+        </p>
       </div>
 
       {error && <p className="text-body text-text-secondary">{error}</p>}

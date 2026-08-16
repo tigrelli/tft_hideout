@@ -52,6 +52,17 @@ describe("Home(티어리스트) — mock API 데이터 바인딩", () => {
     expect(screen.getByText("패치 17.8")).toBeInTheDocument();
   });
 
+  // FE-16(2026-08-16, PM 요청): 티어 배지가 op.gg 공식 웹사이트와 다를 수 있다는
+  // 안내 문구(DATA-21에서 자체 계산으로 전환한 사실 고지)가 항상 노출돼야 한다.
+  it("티어 배지가 op.gg MCP 데이터 기반 자체 계산이라는 안내 문구를 항상 보여준다", () => {
+    render(<Home />);
+    expect(
+      screen.getByText(
+        "티어 배지는 op.gg 공개 데이터(MCP)의 승률·평균 등수를 바탕으로 자체 계산한 값으로, op.gg 공식 웹사이트와 다를 수 있습니다.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("API 호출이 실패하면 에러 문구를 보여준다", async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: false,
