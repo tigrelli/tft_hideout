@@ -1,7 +1,7 @@
 # CHAT-25 : 작업결과
 
 - **TASK**: 경제·로우롤 전략 질문의 오프토픽 오탐 수정
-- **상태**: 완료(PM 확인 2026-08-17, 구현·자체검증 완료, 도커 재검증은 환경 제약으로 미실행 — 아래 "한계" 참고)
+- **상태**: 완료(PM 확인 2026-08-17, 구현·자체검증·도커 재검증 모두 완료)
 - **선행 TASK**: CHAT-01, CHAT-16 (TEST-11 카테고리 F QA 실행 중 발견해 2026-08-17 신설)
 - **근거 문서**: TEST-11 QA 실행 결과(`docs/spike/chat-qa/results_F.json`)
 - **변경 파일**: `backend/services/chat_preprocessing.py`, `backend/tests/test_chat04_input_preprocessing.py`
@@ -29,8 +29,8 @@ TEST-11 카테고리 F(메타·공략·운영전략, 20문항)를 프로덕션 �
 - pytest 신규 1건(`test_chat04_input_preprocessing.py::test_is_off_topic_does_not_flag_economy_and_lowroll_strategy_terms`): 두 실패 질문 모두 `is_off_topic() is False` 확인
 - `tests/test_chat04_input_preprocessing.py` 전체 39/39 통과(DB 미필요 테스트 전부, 회귀 없음)
 - ruff check/format: 변경 파일 클린
+- **[2026-08-17 추가] Docker 재검증 완료**: `docker-compose.test.yml`(test-db, 5433)로 DATABASE_URL 지정 후 backend 전체 **353/353 통과**, batch 전체 **135/135 통과**(회귀 없음)
 
 ## 한계
 
-- 이번 세션 WSL 환경에 Docker가 설치돼 있지 않아(`docker` 명령 자체 없음) `docker-compose.test.yml` 기반 전체 backend/batch pytest 재검증은 못 했다. DB 연동이 필요 없는 대상 파일 테스트만 로컬에서 통과 확인했다 — PR 생성 시 SET-14 CI 게이트가 전체 스위트를 자동 실행하므로 거기서 최종 확인 가능.
 - 두 키워드(`경제`, `이코노미`, `스노우볼링`, `그리핑`)만 추가한 좁은 수정이라, 다른 니치 전략 은어(예: "선반강화" 단독, "로우롤"/"하이롤" 자체 등)는 여전히 2차 LLM에 의존한다 — 2차 프롬프트 보강으로 완화했지만 완전히 결정론적이지 않음. TEST-11 진행 중 유사 사례가 더 나오면 1차 키워드에 계속 추가.
