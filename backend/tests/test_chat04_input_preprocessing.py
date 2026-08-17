@@ -119,6 +119,16 @@ def test_is_off_topic_still_flags_chitchat_with_no_domain_signal() -> None:
     assert is_off_topic("오늘 점심 뭐 먹지") is True
 
 
+# CHAT-25(TEST-11 카테고리 F 실행 중 발견, PM 제보 2026-08-17): "경제(이코노미)
+# 운영은 어떻게 하는 게 좋나요?", "스노우볼링과 그리핑의 차이는 무엇인가요?"처럼
+# 명백한 TFT 전략 질문이 1차 키워드 목록(조합/아이템/메타/전략 등)에 없어 2차 LLM
+# 검증으로 넘어갔고, 그마저도 니치 커뮤니티 은어를 게임 무관 잡담으로 오판해
+# 범위 밖으로 거절당하던 문제 — 1차 키워드에 경제 운영·로우롤 관련 용어를 추가.
+def test_is_off_topic_does_not_flag_economy_and_lowroll_strategy_terms() -> None:
+    assert is_off_topic("경제(이코노미) 운영은 어떻게 하는 게 좋나요?") is False
+    assert is_off_topic("스노우볼링과 그리핑(선반 강화)의 차이는 무엇인가요?") is False
+
+
 def test_preprocess_input_off_topic_flag_is_set_on_result() -> None:
     result = preprocess_input("오늘 점심 뭐 먹지")
     assert result.is_off_topic is True
