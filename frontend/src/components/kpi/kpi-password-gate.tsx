@@ -23,10 +23,7 @@ export function KpiPasswordGate({
     <div className="mx-auto flex max-w-sm flex-col gap-4">
       <h1 className="text-display text-text-primary">KPI 대시보드</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label
-          htmlFor="kpi-password"
-          className="text-body text-text-secondary"
-        >
+        <label htmlFor="kpi-password" className="text-body text-text-secondary">
           비밀번호
         </label>
         <input

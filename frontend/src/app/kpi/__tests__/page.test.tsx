@@ -83,9 +83,9 @@ describe("KpiDashboardPage — 비밀번호 게이트 → 지표 렌더링", () 
 
     const [, summaryCall] = vi.mocked(fetch).mock.calls;
     const summaryInit = summaryCall[1] as RequestInit;
-    expect(
-      (summaryInit.headers as Record<string, string>).Authorization,
-    ).toBe("Bearer issued-token");
+    expect((summaryInit.headers as Record<string, string>).Authorization).toBe(
+      "Bearer issued-token",
+    );
   });
 
   it("인증 직후 지표 조회가 401이면 게이트를 다시 보여준다", async () => {

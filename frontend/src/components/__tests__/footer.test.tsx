@@ -18,7 +18,9 @@ describe("Footer", () => {
 
     const links = screen.getAllByRole("link");
     const homepageIndex = links.indexOf(homepageLink);
-    const aboutIndex = links.indexOf(screen.getByRole("link", { name: "About" }));
+    const aboutIndex = links.indexOf(
+      screen.getByRole("link", { name: "About" }),
+    );
     expect(homepageIndex).toBeLessThan(aboutIndex);
   });
 
