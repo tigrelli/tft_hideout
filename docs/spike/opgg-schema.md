@@ -107,9 +107,9 @@ PM이 "승률/픽률/평균등수 외에 더 받아올 수 있는 정보가 있�
 **현재 사용 중**: `id`, `name`(ko_KR만), `stat.deck.{avgPlacement,pickRate,winRate}`, `units[].{key,items,tier,cell,isCore}`
 
 **미사용 필드(전체 목록)**:
-- `stat.deck.{totalCount,compsCount,winCount,top4Count,top4Rate}` — **totalCount가 실제 표본 게임 수**(예 1,336,188), **top4Rate는 4등 이내 확률**(승률과 별개 핵심 지표, 예 0.8107). 둘 다 op.gg 웹사이트 카드에 흔히 노출되는 정보인데 이 저장소는 안 씀.
-- `stat.opScore` — op.gg 자체 종합 점수(DATA-21이 자체 tier_rank로 대체했지만 opScore 자체는 참고용으로 남겨둘 수 있음)
-- `stat.label{}` — `stat.deck`과 동일 구조(totalCount/avgPlacement/winRate/top4Rate 등)의 **별도 집계 세트** — `deck` vs `label`의 정확한 의미 차이(변형 통합 여부로 추정)는 미확인, 필요시 추가 조사.
+- `stat.deck.{totalCount,compsCount,winCount,top4Count,top4Rate}` — **[2026-08-18 최초 기록 정정]** `totalCount`는 개별 조합의 표본 게임수가 아니라 **이번 집계 구간의 전체 게임 수(모든 조합 공통 분모)**임을 재확인(2026-08-18, 현재 10개 조합 전부 `totalCount=1,336,188`로 동일값, `pickRate = compsCount/totalCount`·`winRate = winCount/compsCount` 수식으로 검증). **실제 "이 조합이 플레이된 게임수"는 `compsCount`**이며, 현재 10개 조합 기준 1,318~19,650회로 **약 15배 편차**가 있음(DATA-23 검토 참고). `top4Rate`는 4등 이내 확률(승률과 별개 핵심 지표, 예 0.8107) — op.gg 웹사이트 카드에 흔히 노출되는 정보인데 이 저장소는 안 씀.
+- `stat.opScore` — op.gg 자체 종합 점수(DATA-21이 자체 tier_rank로 대체했지만 opScore 자체는 참고용으로 남겨둘 수 있음). **[2026-08-18 관찰]** `avg_place`·`win_rate`만으로는 opScore 순위를 재현 못 함 — `pickRate`가 극히 낮은(0.099%) 조합이 win_rate·avg_place 단독 1위인데도 op.gg opTier는 "A"(우리 자체 계산은 "OP"), 반대로 `pickRate`가 가장 높은(1.471%) 조합은 win_rate가 낮은데도 op.gg opTier가 "OP"(우리 자체 계산은 "B") — op.gg는 `pickRate`(표본 신뢰도·대중성)를 실질적으로 반영하는 것으로 추정됨. 상세 검토: `docs/verification/DATA-23-작업결과.md`(착수 시 작성).
+- `stat.label{}` — `stat.deck`과 동일 구조(totalCount/avgPlacement/winRate/top4Rate/compsCount 등)의 **별도 집계 세트** — `label.totalCount`도 `deck.totalCount`와 동일한 공통 분모, `label.compsCount`는 `deck.compsCount`보다 항상 큼(예 31,157 vs 19,650) — 같은 핵심 조합의 세부 변형(아이템/성급 조합)들을 통합한 상위 그룹 집계로 추정. 정확한 의미 차이는 미확인, 필요시 추가 조사.
 - `traits[]` — 조합이 실제 발동하는 시너지 목록: `{key, style(0~4, 브론즈~프리즘), numUnits}`. 조합 상세 페이지에 시너지 구성을 보여주려면 필요한데 현재 DB 미반영.
 - `badge[]` — 플레이스타일 배지: `{key: "difficulty"|"tempo"|"reroll"|"honey"|"ppm", value}`. `difficulty`(정수)·`reroll`(정수)은 의미가 비교적 명확하나 `honey`(boolean)·`ppm`(문자열 "high" 등)은 의미 불명확 — 사용하려면 op.gg 표기 대조 등 추가 조사 필요.
 - `early{}` / `middle{}` — 레벨 5(초반)·레벨 7(중반) 시점 스냅샷: `units[]`(챔피언+셀, 아이템 정보는 없음), `traits[]`, `play`/`win`/`lose`(그 시점 표본 게임수). 초반→중반 전환 경로를 보여주는 플레이 가이드용 데이터인데 완전 미사용.
