@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Home from "@/app/page";
 import type { TierlistResponse } from "@/types/catalog";
 
@@ -52,14 +53,30 @@ describe("Home(티어리스트) — mock API 데이터 바인딩", () => {
     expect(screen.getByText("패치 17.8")).toBeInTheDocument();
   });
 
-  // FE-16(2026-08-16, PM 요청): 티어 배지가 op.gg 공식 웹사이트와 다를 수 있다는
-  // 안내 문구(DATA-21에서 자체 계산으로 전환한 사실 고지)가 항상 노출돼야 한다.
-  it("티어 배지가 op.gg MCP 데이터 기반 자체 계산이라는 안내 문구를 항상 보여준다", () => {
+  // FE-16(2026-08-16, PM 요청)에서 처음 추가, 2026-08-18 DATA-23 재정의(opScore
+  // 기반 대중성·신뢰도 상대 순위)에 맞춰 문구 갱신 — "자체 계산"이 아니라 "대중적
+  // 조합의 상대 등급"이라는 새 정의가 항상 노출돼야 한다.
+  it("티어 배지가 op.gg top-10 안에서의 상대 등급이라는 안내 문구를 항상 보여준다", () => {
     render(<Home />);
     expect(
       screen.getByText(
-        "티어 배지는 op.gg 공개 데이터(MCP)의 승률·평균 등수를 바탕으로 자체 계산한 값으로, op.gg 공식 웹사이트와 다를 수 있습니다.",
+        /티어 배지는 op\.gg 상위 10개 조합 중 대중적으로 꾸준히 강세를 보이는/,
       ),
+    ).toBeInTheDocument();
+  });
+
+  it("안내 문구 옆 정보 아이콘을 클릭하면 상세 설명 팝업이 뜬다", async () => {
+    const user = userEvent.setup();
+    render(<Home />);
+
+    expect(
+      screen.queryByText(/공식 웹사이트가 보여주는 20개 이상과는/),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "자세히 보기" }));
+
+    expect(
+      screen.getByText(/공식 웹사이트가 보여주는 20개 이상과는/),
     ).toBeInTheDocument();
   });
 
