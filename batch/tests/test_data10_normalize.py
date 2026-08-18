@@ -436,8 +436,13 @@ def test_build_playstyle_text_includes_carry_and_nonfalsy_badges() -> None:
     assert "난이도 2" in text
     assert "리롤 성향 7" in text
     assert "이코노미(하이퍼롤)" in text  # value=True -> 라벨만
-    assert "파워스파이크 속도 high" in text
     assert "템포" not in text  # value=None -> 제외
+    # 2026-08-18: ppm은 검증 안 된 추측 라벨("파워스파이크 속도")이었고 실측
+    # 결과 opScore 상위권 표시 플래그로 추정돼(정확한 의미 불명) PM 결정으로
+    # 화면 표시에서 제외 — value가 있어도("high") 절대 노출되면 안 된다.
+    assert "ppm" not in text
+    assert "파워스파이크" not in text
+    assert "high" not in text
 
 
 def test_build_playstyle_text_falls_back_to_unknown_champion_id() -> None:

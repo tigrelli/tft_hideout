@@ -29,8 +29,17 @@ _BADGE_LABELS = {
     "tempo": "템포",
     "reroll": "리롤 성향",
     "honey": "이코노미(하이퍼롤)",
-    "ppm": "파워스파이크 속도",
 }
+
+# 2026-08-18 발견·제거: "ppm"을 "파워스파이크 속도"로 표시했었으나 검증 없는
+# 추측 라벨이었음(build_playstyle_text 최초 주석에도 "추후 다듬을 자리표시자"
+# 라고 명시돼 있었음). 실측 결과 ppm 값은 "high"/None 두 가지뿐이고,
+# "high"가 붙는 조합이 매 배치에서 opScore 상위권(오늘자: 상위 4/10, DATA-23
+# 알고리즘의 OP·S 등급과 정확히 일치)과 정확히 겹침 — 플레이 특성이 아니라
+# op.gg 자체의 "주목 조합" 하이라이트 플래그로 추정되며, 정확한 의미는 op.gg가
+# 공개하지 않아 확정할 수 없다(docs/spike/opgg-schema.md 10번 항목에 이미
+# "의미 불명확"으로 기록됨). PM 결정으로 화면 표시에서 제거.
+_EXCLUDED_BADGE_KEYS = {"ppm"}
 
 
 def _find_set_entry(
@@ -311,9 +320,10 @@ def _champion_display_name(champion_names: dict[str, str], champion_id: str) -> 
 
 
 def build_playstyle_text(deck: dict[str, Any], champion_names: dict[str, str]) -> str:
-    """op.gg 응답엔 조합 설명 텍스트가 없어 `badge`(difficulty/tempo/reroll/honey/ppm)와
-    캐리 챔피언으로 결정론적으로 생성한다(LLM 미사용, PM 승인 2026-08-04). 정확한 문구는
-    추후 PM/FE-03에서 다듬을 수 있는 자리표시자 성격이 있다."""
+    """op.gg 응답엔 조합 설명 텍스트가 없어 `badge`(difficulty/tempo/reroll/honey,
+    ppm은 2026-08-18 제외 — 아래 _EXCLUDED_BADGE_KEYS 주석 참고)와 캐리 챔피언으로
+    결정론적으로 생성한다(LLM 미사용, PM 승인 2026-08-04). 정확한 문구는 추후
+    PM/FE-03에서 다듬을 수 있는 자리표시자 성격이 있다."""
     parts: list[str] = []
 
     carry_ids = [u["key"] for u in deck.get("units", []) if u.get("isCore")]
@@ -323,7 +333,7 @@ def build_playstyle_text(deck: dict[str, Any], champion_names: dict[str, str]) -
 
     for badge in deck.get("badge", []):
         key, value = badge.get("key"), badge.get("value")
-        if value is None or value is False:
+        if value is None or value is False or key in _EXCLUDED_BADGE_KEYS:
             continue
         label = _BADGE_LABELS.get(key, key)
         parts.append(label if value is True else f"{label} {value}")
