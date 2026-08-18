@@ -117,7 +117,13 @@ describe("ChatWidget — FE-09", () => {
   // 문제 — PM 요청으로 첫 토큰 전까지 타이핑 인디케이터를 추가.
   it("첫 토큰이 오기 전까지 타이핑 인디케이터가 보이고, 토큰이 오면 사라진다", async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValue(mockSseResponseDelayed(["안녕하세요."], 50));
+    // 2026-08-18: CI에서 간헐적으로 실패 발견(로컬 반복 실행 5/5는 항상 통과) —
+    // 컴포넌트 로직 자체는 동기적이라(빈 봇 메시지가 클릭과 같은 틱에 즉시
+    // 추가됨, chat-message-list.tsx 참고) 타이밍 버그가 아니라, 부하가 큰 CI
+    // 러너에서 실제 타이머(50ms)와 waitFor의 폴링 타이머가 같은 매크로태스크로
+    // 뭉쳐 처리되면서 "표시→소멸"이 폴링 사이로 통째로 묻히는 것으로 추정.
+    // 딜레이를 크게(300ms) 늘려 이벤트 루프 혼잡과 무관하게 여유를 확보한다.
+    fetchMock.mockResolvedValue(mockSseResponseDelayed(["안녕하세요."], 300));
 
     const user = userEvent.setup();
     render(<ChatWidget />);
