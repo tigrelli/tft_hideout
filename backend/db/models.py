@@ -159,6 +159,18 @@ class Comp(Base):
     # match_analyses.matched_comp_id FK와 meta_document_embeddings 참조가
     # 끊기지 않는다 — 티어리스트 API만 is_active=true로 필터링한다.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # DATA-22: op.gg stat.deck.top4Rate/compsCount(개별 조합의 실제 표본
+    # 게임수 — totalCount는 집계구간 전체 공통분모일 뿐 조합별 표본이
+    # 아님, docs/spike/opgg-schema.md 10번 항목 참고). 이 컬럼 추가 전
+    # 배치가 채운 기존 행은 NULL(다음 배치 실행 시 채워짐).
+    top4_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    game_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # DATA-23: op.gg stat.opScore 원값. avg_place·win_rate·top4_rate와는
+    # 거의 무관(r≈-0.2)하고 pickRate와 거의 완벽히 상관(r=0.984)하는,
+    # op.gg의 top-10 안에서 사실상 대중성·신뢰도 대리 지표(docs/spike/
+    # comp-tier-scoring.md). assign_self_tiers()가 이 값을 정규화해
+    # tier_rank를 계산하는 데 쓴다.
+    op_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class CompChampion(Base):
@@ -191,6 +203,20 @@ class CompAugment(Base):
     comp_id: Mapped[int] = mapped_column(ForeignKey("comps.id"), primary_key=True)
     augment_id: Mapped[int] = mapped_column(ForeignKey("augments.id"), primary_key=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class CompTrait(Base):
+    """DATA-22: op.gg tft_list_meta_decks 응답의 deck.traits[](조합이 실제로
+    발동하는 시너지 목록)을 저장한다. comp_champions/comp_augments와 동일한
+    (comp_id, X) 복합키 패턴."""
+
+    __tablename__ = "comp_traits"
+
+    comp_id: Mapped[int] = mapped_column(ForeignKey("comps.id"), primary_key=True)
+    trait_id: Mapped[int] = mapped_column(ForeignKey("traits.id"), primary_key=True)
+    # op.gg trait.style: 0(미발동)~4(프리즘 등급). numUnits: 발동 유닛 수.
+    style: Mapped[int] = mapped_column(Integer, nullable=False)
+    num_units: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class ChampionItemBuild(Base):

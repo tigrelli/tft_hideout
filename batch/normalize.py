@@ -339,61 +339,65 @@ def build_playstyle_text(deck: dict[str, Any], champion_names: dict[str, str]) -
 # avg_place·win_rate가 뱃지와 어긋나지 않도록(예: 승률이 더 낮은 조합이 더
 # 높은 뱃지를 받는 경우 방지) op.gg가 준 opTier를 그대로 쓰지 않고 자체
 # 상대순위로 재계산한다(PM 승인 2026-08-16).
-_TIER_LABELS: list[tuple[float, str]] = [
-    (0.10, "OP"),
-    (0.30, "S"),
-    (0.60, "A"),
-    (0.85, "B"),
-    (1.0, "C"),
-]
+_TIER_LABELS: list[str] = ["OP", "S", "A", "B", "C"]
 
-
-def _ascending_ranks(values: list[float]) -> list[float]:
-    """값이 작을수록 좋은 순위(0=최상위)를 매긴다. 동점은 평균 순위를 공유한다
-    (예: 공동 0위 2개는 둘 다 0.5) — 입력 순서(리스트 앞뒤)에 따라 결과가
-    갈리지 않게 하기 위함. 순서 기반 순위를 썼을 때 avg_place가 동점인 두
-    조합 중 하나에 win_rate가 없으면, 단지 리스트에 먼저 나왔다는 이유로
-    더 좋은 티어를 받는 문제가 단위 테스트로 실제 확인되어 이 방식으로 수정."""
-    n = len(values)
-    order = sorted(range(n), key=lambda i: values[i])
-    ranks = [0.0] * n
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
-            j += 1
-        avg_rank = (i + j) / 2
-        for k in range(i, j + 1):
-            ranks[order[k]] = avg_rank
-        i = j + 1
-    return ranks
+# DATA-23: 2026-08-18 단일 스냅샷(같은 배치 10개)에서 탐색적으로 찾은 값이라
+# 과적합 위험이 있음 — 여러 날짜/패치 스냅샷으로 재검증 필요(docs/spike/
+# comp-tier-scoring.md "반드시 확인 후 구현할 것" 참고).
+_GAP_THRESHOLD_FACTOR = 1.3
 
 
 def assign_self_tiers(rows: list[dict[str, Any]]) -> None:
-    """같은 배치(패치 1회 수집 단위, 통상 10개)의 comp 행들에 avg_place·win_rate
-    기반 자체 상대순위 tier_rank를 매겨 rows를 제자리에서(in-place) 갱신한다.
-    avg_place 오름차순 순위 + win_rate 내림차순 순위를 더한 종합순위(Borda
-    count 방식)로 정렬한 뒤, 순위를 백분위(구간 중앙값 기준)로 환산해
-    OP(상위 10%)/S(~30%)/A(~60%)/B(~85%)/C(나머지) 5단계로 나눈다. win_rate가
-    없는 행(op.gg 응답 결측)은 해당 축에서 항상 최하위로 취급한다."""
+    """같은 배치(패치 1회 수집 단위, 통상 10개)의 comp 행들에 op_score 기반
+    자체 상대순위 tier_rank를 매겨 rows를 제자리에서(in-place) 갱신한다
+    (DATA-23, avg_place·win_rate 두 축 순위합 방식(DATA-21)을 폐기).
+
+    op_score는 avg_place·win_rate·top4_rate와 거의 무관(r≈-0.2)하고
+    pickRate와 거의 완벽히 상관(r=0.984)함이 실측으로 확인됨 — op.gg의
+    top-10(이미 성능으로 1차 필터링된 집합) 안에서는 사실상 대중성·신뢰도
+    대리 지표다. 따라서 이 알고리즘의 목표는 "객관적 최강 조합 판별"이
+    아니라 "op.gg top-10 안에서 op_score 기준으로 믿을 만하게 강한 대중적
+    조합의 상대 순위"로 재정의됐다(docs/spike/comp-tier-scoring.md).
+
+    op_score를 0~100으로 Min-Max 정규화 → 내림차순 정렬 → 인접 순위 간
+    점수 격차가 평균 격차 x _GAP_THRESHOLD_FACTOR를 넘는 지점만 "진짜
+    경계"로 인정한다(고정 5단계 강제 배분 폐지 — 그날 데이터 분포에 따라
+    3~5단계로 가변적). op_score가 없는 행(op.gg 응답 결측)은 이 정규화·
+    격차 계산에서 제외하고 항상 "C"로 고정한다."""
     n = len(rows)
     if n == 0:
         return
-    place_ranks = _ascending_ranks([row["avg_place"] for row in rows])
-    win_rate_sort_key = [
-        -(row["win_rate"] if row["win_rate"] is not None else float("-inf"))
-        for row in rows
-    ]
-    win_rate_ranks = _ascending_ranks(win_rate_sort_key)
-    combined_ranks = [place_ranks[i] + win_rate_ranks[i] for i in range(n)]
 
-    order = sorted(range(n), key=lambda i: combined_ranks[i])
-    for position, idx in enumerate(order):
-        percentile = (position + 0.5) / n
-        for cutoff, label in _TIER_LABELS:
-            if percentile <= cutoff:
-                rows[idx]["tier_rank"] = label
-                break
+    scored_indices = [
+        i for i, row in enumerate(rows) if row.get("op_score") is not None
+    ]
+    for i, row in enumerate(rows):
+        if row.get("op_score") is None:
+            row["tier_rank"] = "C"
+
+    if len(scored_indices) == 0:
+        return
+    if len(scored_indices) == 1:
+        rows[scored_indices[0]]["tier_rank"] = "A"
+        return
+
+    values = [rows[i]["op_score"] for i in scored_indices]
+    min_v, max_v = min(values), max(values)
+    spread = max_v - min_v
+    normalized = [100 * (v - min_v) / spread if spread else 0.0 for v in values]
+
+    order = sorted(range(len(scored_indices)), key=lambda k: -normalized[k])
+    sorted_scores = [normalized[k] for k in order]
+    gaps = [sorted_scores[k] - sorted_scores[k + 1] for k in range(len(order) - 1)]
+    mean_gap = sum(gaps) / len(gaps) if gaps else 0.0
+    threshold = mean_gap * _GAP_THRESHOLD_FACTOR
+
+    label_idx = 0
+    rows[scored_indices[order[0]]]["tier_rank"] = _TIER_LABELS[0]
+    for pos in range(1, len(order)):
+        if gaps[pos - 1] > threshold and label_idx < len(_TIER_LABELS) - 1:
+            label_idx += 1
+        rows[scored_indices[order[pos]]]["tier_rank"] = _TIER_LABELS[label_idx]
 
 
 def comp_rows(
@@ -414,6 +418,13 @@ def comp_rows(
                 "avg_place": _or_default(deck_stat.get("avgPlacement"), 0.0),
                 "play_rate": _or_default(deck_stat.get("pickRate"), 0.0),
                 "win_rate": deck_stat.get("winRate"),
+                # DATA-22: top4Rate(4등 이내 확률), compsCount(조합별 실제 표본
+                # 게임수 — totalCount는 집계구간 전체 공통분모라 개별 조합
+                # 표본과 다름, docs/spike/opgg-schema.md 10번 항목).
+                "top4_rate": deck_stat.get("top4Rate"),
+                "game_count": deck_stat.get("compsCount"),
+                # DATA-23: assign_self_tiers()가 tier_rank 계산에 쓰는 원값.
+                "op_score": stat.get("opScore"),
                 "playstyle_text": build_playstyle_text(deck, champion_names),
                 "updated_at": _parse_updated_at(meta_decks),
             }
@@ -454,6 +465,22 @@ def comp_champion_rows(deck: dict[str, Any]) -> list[dict[str, Any]]:
                 "cell_x": cell.get("x"),
                 "cell_y": cell.get("y"),
                 "star_level": unit.get("tier"),
+            }
+        )
+    return rows
+
+
+def comp_trait_rows(deck: dict[str, Any]) -> list[dict[str, Any]]:
+    """deck 하나(comp_rows에 넘긴 것과 동일 deck)에서 조합-시너지 매핑을 만든다.
+    trait_id(riot ID) -> DB id 해석은 호출부(upsert_comp_traits)에서 한다.
+    (DATA-22, op.gg tft_list_meta_decks 응답 deck.traits[])."""
+    rows = []
+    for trait in deck.get("traits", []):
+        rows.append(
+            {
+                "riot_trait_id": trait["key"],
+                "style": trait["style"],
+                "num_units": trait["numUnits"],
             }
         )
     return rows
@@ -600,6 +627,9 @@ def upsert_comps(
             "avg_place": stmt.excluded.avg_place,
             "play_rate": stmt.excluded.play_rate,
             "win_rate": stmt.excluded.win_rate,
+            "top4_rate": stmt.excluded.top4_rate,
+            "game_count": stmt.excluded.game_count,
+            "op_score": stmt.excluded.op_score,
             "playstyle_text": stmt.excluded.playstyle_text,
             "updated_at": stmt.excluded.updated_at,
             # DATA-17: 이전 배치에서 소프트 삭제(is_active=False)됐던 조합이
@@ -671,6 +701,40 @@ def upsert_comp_champions(
             "cell_x": stmt.excluded.cell_x,
             "cell_y": stmt.excluded.cell_y,
             "star_level": stmt.excluded.star_level,
+        },
+    )
+    session.execute(stmt)
+
+
+def upsert_comp_traits(
+    session: Session,
+    comp_id: int,
+    rows: list[dict[str, Any]],
+    trait_ids_by_riot_id: dict[str, int],
+) -> None:
+    """rows는 comp_trait_rows() 결과(riot_trait_id 포함). 매핑에 없는 특성은
+    건너뛴다(DATA-22, comp_champions/upsert_comp_champions과 동일 패턴)."""
+    values = []
+    for row in rows:
+        trait_id = trait_ids_by_riot_id.get(row["riot_trait_id"])
+        if trait_id is None:
+            continue
+        values.append(
+            {
+                "comp_id": comp_id,
+                "trait_id": trait_id,
+                "style": row["style"],
+                "num_units": row["num_units"],
+            }
+        )
+    if not values:
+        return
+    stmt = pg_insert(models.CompTrait).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["comp_id", "trait_id"],
+        set_={
+            "style": stmt.excluded.style,
+            "num_units": stmt.excluded.num_units,
         },
     )
     session.execute(stmt)

@@ -42,8 +42,10 @@ from embeddings import (
 from normalize import (
     comp_champion_rows,
     comp_rows,
+    comp_trait_rows,
     mark_stale_comps_inactive,
     upsert_comp_champions,
+    upsert_comp_traits,
     upsert_comps,
 )
 from opgg_client import OpggMcpClient
@@ -84,6 +86,12 @@ def refresh_comps(
     ).all()
     champion_ids = {riot_id: db_id for riot_id, db_id, _ in champions}
     champion_names = {riot_id: name_kr for riot_id, _, name_kr in champions}
+    traits = session.execute(
+        select(models.Trait.riot_trait_id, models.Trait.id).where(
+            models.Trait.patch_version == patch_version
+        )
+    ).all()
+    trait_ids = {riot_id: db_id for riot_id, db_id in traits}
 
     meta_decks = opgg_client.list_meta_decks()
     comp_ids = upsert_comps(
@@ -99,6 +107,7 @@ def refresh_comps(
             upsert_comp_champions(
                 session, comp_id, comp_champion_rows(deck), champion_ids
             )
+            upsert_comp_traits(session, comp_id, comp_trait_rows(deck), trait_ids)
     session.flush()
 
     chunks = collect_comp_and_playstyle_chunks(session, patch_version)

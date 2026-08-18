@@ -26,6 +26,7 @@ from normalize import (
     clean_item_description,
     comp_champion_rows,
     comp_rows,
+    comp_trait_rows,
     ensure_patch,
     format_item_stats,
     item_rows,
@@ -35,6 +36,7 @@ from normalize import (
     upsert_augments,
     upsert_champions,
     upsert_comp_champions,
+    upsert_comp_traits,
     upsert_comps,
     upsert_items,
     upsert_traits,
@@ -132,6 +134,10 @@ FAKE_DECK = {
         },
         {"key": "TFT17_FakeUnknown", "isCore": False, "items": []},
     ],
+    "traits": [
+        {"key": "TFT17_FakeTrait", "style": 3, "numUnits": 4},
+        {"key": "TFT17_UnknownTrait", "style": 1, "numUnits": 2},
+    ],
     "badge": [
         {"key": "difficulty", "value": 2},
         {"key": "tempo", "value": None},
@@ -141,7 +147,14 @@ FAKE_DECK = {
     ],
     "stat": {
         "opTier": "OP",
-        "deck": {"avgPlacement": 3.1, "pickRate": 0.02, "winRate": 0.19},
+        "opScore": 1.5,
+        "deck": {
+            "avgPlacement": 3.1,
+            "pickRate": 0.02,
+            "winRate": 0.19,
+            "top4Rate": 0.81,
+            "compsCount": 1234,
+        },
     },
 }
 FAKE_META_DECKS = {
@@ -440,20 +453,27 @@ def test_comp_rows_maps_fields_from_deck() -> None:
     row = rows[0]
     assert row["riot_comp_id"] == "fake-origin-hash-1"
     assert row["name"] == "가짜 조합"
-    # DATA-21: tier_rank는 op.gg opTier("OP")가 아니라 assign_self_tiers()의 자체
-    # 계산 값. 배치에 조합이 1개뿐이면 백분위(구간 중앙값) 0.5로 "A" 구간에 든다.
+    # DATA-23: tier_rank는 op.gg opTier("OP")가 아니라 assign_self_tiers()의
+    # 자체 계산 값(op_score 기반). 배치에 op_score 있는 조합이 1개뿐이면
+    # 비교 대상이 없어 "A"(중립) 고정.
     assert row["tier_rank"] == "A"
     assert row["avg_place"] == 3.1
     assert row["play_rate"] == 0.02
     assert row["win_rate"] == 0.19
+    # DATA-22: top4Rate/compsCount 매핑(compsCount가 조합별 실제 표본
+    # 게임수 — totalCount는 집계구간 전체 공통분모라 여기서 쓰지 않음).
+    assert row["top4_rate"] == 0.81
+    assert row["game_count"] == 1234
+    # DATA-23: op_score 원값 매핑.
+    assert row["op_score"] == 1.5
     assert row["updated_at"] == datetime(2026, 8, 1, tzinfo=UTC)
 
 
-# ---- DATA-21: assign_self_tiers 단위 테스트 --------------------------------
+# ---- DATA-23: assign_self_tiers 단위 테스트(op_score 기반 간격 클러스터링) ---
 
 
-def _comp(avg_place: float, win_rate: float | None) -> dict[str, Any]:
-    return {"avg_place": avg_place, "win_rate": win_rate}
+def _comp(op_score: float | None) -> dict[str, Any]:
+    return {"op_score": op_score}
 
 
 def test_assign_self_tiers_empty_list_is_no_op() -> None:
@@ -462,64 +482,65 @@ def test_assign_self_tiers_empty_list_is_no_op() -> None:
     assert rows == []
 
 
-def test_assign_self_tiers_single_comp_lands_in_middle_tier() -> None:
-    rows = [_comp(avg_place=3.1, win_rate=0.19)]
+def test_assign_self_tiers_single_scored_comp_lands_in_neutral_tier() -> None:
+    """op_score가 있는 조합이 배치에 1개뿐이면 비교 대상이 없어 "A"(중립) 고정."""
+    rows = [_comp(op_score=1.5)]
     assign_self_tiers(rows)
     assert rows[0]["tier_rank"] == "A"
 
 
-def test_assign_self_tiers_best_and_worst_get_extreme_tiers() -> None:
-    """avg_place·win_rate 둘 다 압도적으로 좋은/나쁜 조합은 각각 OP/C에 배정된다."""
-    rows = [
-        _comp(avg_place=2.0, win_rate=0.40),  # 압도적 1위
-        _comp(avg_place=3.5, win_rate=0.20),
-        _comp(avg_place=3.7, win_rate=0.18),
-        _comp(avg_place=4.0, win_rate=0.15),
-        _comp(avg_place=4.2, win_rate=0.12),
-        _comp(avg_place=4.5, win_rate=0.10),
-        _comp(avg_place=4.8, win_rate=0.08),
-        _comp(avg_place=5.0, win_rate=0.06),
-        _comp(avg_place=5.3, win_rate=0.05),
-        _comp(avg_place=6.0, win_rate=0.02),  # 압도적 꼴찌
-    ]
+def test_assign_self_tiers_missing_op_score_gets_lowest_tier() -> None:
+    """op_score가 None(op.gg 응답 결측)인 행은 다른 조합의 점수 분포와
+    무관하게 항상 "C"로 고정된다."""
+    rows = [_comp(op_score=None), _comp(op_score=2.0), _comp(op_score=0.2)]
     assign_self_tiers(rows)
-    assert rows[0]["tier_rank"] == "OP"
-    assert rows[-1]["tier_rank"] == "C"
-    # 10개 배치는 (0.5/10=0.05, ..., 9.5/10=0.95) 백분위로 나뉘어
-    # OP 1개·S 2개·A 3개·B 3개·C 1개로 분포된다.
+    assert rows[0]["tier_rank"] == "C"
+    assert rows[1]["tier_rank"] != "C"
+
+
+def test_assign_self_tiers_all_tied_scores_land_in_single_top_tier() -> None:
+    """op_score가 전부 동점이면 격차가 0이라 경계가 하나도 안 생겨 전부
+    최상위 티어("OP")로 묶인다 — 비교 우위를 가릴 근거가 없다는 뜻."""
+    rows = [_comp(op_score=1.0) for _ in range(5)]
+    assign_self_tiers(rows)
+    assert all(row["tier_rank"] == "OP" for row in rows)
+
+
+def test_assign_self_tiers_reproduces_real_snapshot_clusters() -> None:
+    """2026-08-18 실측 스냅샷(docs/spike/comp-tier-scoring.md)의 opScore
+    10개를 그대로 넣으면, 두드러진 격차를 경계로 {상위 2개}=OP,
+    {다음 2개}=S, {나머지 6개}=A로 나뉜다(고정 5단계가 아니라 실제
+    점수 분포에 따라 3단계만 나온 사례) — op.gg 원본 라벨(OP,OP,S,S,
+    A,A,A,A,A,A)과 완전히 일치했던 조합이다."""
+    scores = [2.221, 2.000, 0.953, 0.893, 0.442, 0.432, 0.402, 0.252, 0.234, 0.209]
+    rows = [_comp(op_score=s) for s in scores]
+    assign_self_tiers(rows)
     tiers = [row["tier_rank"] for row in rows]
-    assert tiers.count("OP") == 1
-    assert tiers.count("S") == 2
-    assert tiers.count("A") == 3
-    assert tiers.count("B") == 3
-    assert tiers.count("C") == 1
+    assert tiers[0:2] == ["OP", "OP"]
+    assert tiers[2:4] == ["S", "S"]
+    assert tiers[4:10] == ["A"] * 6
 
 
-def test_assign_self_tiers_missing_win_rate_ranks_last_on_that_axis() -> None:
-    """win_rate가 None인 조합은 avg_place가 아무리 좋아도 그 축에서 최하위 취급되어
-    win_rate가 있는 동급 조합보다 낮은 티어를 받는다."""
-    rows = [
-        _comp(avg_place=3.0, win_rate=None),
-        _comp(avg_place=3.0, win_rate=0.20),
+def test_assign_self_tiers_never_exceeds_five_labels() -> None:
+    """유의미한 격차(gap=1, 임계값 0.867 초과)가 연속 6번 나와 경계 후보가
+    6개 생겨도, 라벨은 5단계(OP~C)를 넘어서지 않고 6번째부터는 "C"에
+    누적된다."""
+    scores = [
+        60.003,
+        59.003,
+        58.003,
+        57.003,
+        56.003,
+        55.003,
+        54.003,
+        54.002,
+        54.001,
+        54.000,
     ]
+    rows = [_comp(op_score=s) for s in scores]
     assign_self_tiers(rows)
-    # avg_place는 동점(공동 0위)이라 win_rate 축에서만 갈린다 -> win_rate 있는 쪽이 더 좋은 티어.
-    assert rows[1]["tier_rank"] in {"OP", "S"}
-    assert rows[0]["tier_rank"] in {"A", "B", "C"}
-
-
-def test_assign_self_tiers_trades_off_place_against_win_rate() -> None:
-    """avg_place는 최고지만 win_rate는 최저인 조합과, 그 반대(avg_place 최저·win_rate
-    최고)인 조합이 종합순위(Borda count)로는 동점이 되어 극단 티어(OP/C) 둘 다
-    아닌 중간 티어에 배정됨을 확인 — 한쪽 지표만으로 뱃지가 정해지지 않는다는 뜻."""
-    rows = [
-        _comp(avg_place=2.0, win_rate=0.05),  # 등수는 최고, 승률은 최저
-        _comp(avg_place=6.0, win_rate=0.40),  # 등수는 최저, 승률은 최고
-        _comp(avg_place=4.0, win_rate=0.20),  # 둘 다 중간
-    ]
-    assign_self_tiers(rows)
-    tiers = {row["tier_rank"] for row in rows}
-    assert not (tiers & {"OP", "C"})  # 셋 다 극단 티어를 받지 않아야 함
+    tiers = [row["tier_rank"] for row in rows]
+    assert tiers == ["OP", "S", "A", "B", "C", "C", "C", "C", "C", "C"]
 
 
 def test_comp_champion_rows_extracts_units() -> None:
@@ -542,6 +563,15 @@ def test_comp_champion_rows_extracts_units() -> None:
             "cell_y": None,
             "star_level": None,
         },
+    ]
+
+
+def test_comp_trait_rows_extracts_traits() -> None:
+    rows = comp_trait_rows(FAKE_DECK)
+
+    assert rows == [
+        {"riot_trait_id": "TFT17_FakeTrait", "style": 3, "num_units": 4},
+        {"riot_trait_id": "TFT17_UnknownTrait", "style": 1, "num_units": 2},
     ]
 
 
@@ -812,6 +842,111 @@ def test_upsert_comp_champions_skips_unmapped_champion(db_session: Session) -> N
     ).all()
     assert len(linked) == 1
     assert linked[0].champion_id == champion_ids["TFT17_Known"]
+
+
+def test_upsert_comp_traits_skips_unmapped_trait(db_session: Session) -> None:
+    trait_ids = upsert_traits(
+        db_session,
+        "17.8",
+        [
+            {
+                "riot_trait_id": "TFT17_Known",
+                "name_kr": "K",
+                "name_en": "K",
+                "tier_thresholds": {},
+            }
+        ],
+    )
+    comp_ids = upsert_comps(
+        db_session,
+        "17.8",
+        [
+            {
+                "riot_comp_id": "comp-z",
+                "name": "조합제트",
+                "tier_rank": "A",
+                "avg_place": 4.0,
+                "play_rate": 0.05,
+                "win_rate": None,
+                "playstyle_text": "설명",
+                "updated_at": datetime.now(UTC),
+            }
+        ],
+    )
+    db_session.commit()
+    comp_id = comp_ids["comp-z"]
+
+    rows = [
+        {"riot_trait_id": "TFT17_Known", "style": 2, "num_units": 3},
+        {"riot_trait_id": "TFT17_NotInTraitsTable", "style": 1, "num_units": 2},
+    ]
+    upsert_comp_traits(db_session, comp_id, rows, trait_ids)
+    db_session.commit()
+
+    linked = db_session.scalars(
+        select(models.CompTrait).where(models.CompTrait.comp_id == comp_id)
+    ).all()
+    assert len(linked) == 1
+    assert linked[0].trait_id == trait_ids["TFT17_Known"]
+    assert linked[0].style == 2
+    assert linked[0].num_units == 3
+
+
+def test_upsert_comp_traits_updates_style_and_num_units_on_conflict(
+    db_session: Session,
+) -> None:
+    trait_ids = upsert_traits(
+        db_session,
+        "17.8",
+        [
+            {
+                "riot_trait_id": "TFT17_Known",
+                "name_kr": "K",
+                "name_en": "K",
+                "tier_thresholds": {},
+            }
+        ],
+    )
+    comp_ids = upsert_comps(
+        db_session,
+        "17.8",
+        [
+            {
+                "riot_comp_id": "comp-z2",
+                "name": "조합제트투",
+                "tier_rank": "A",
+                "avg_place": 4.0,
+                "play_rate": 0.05,
+                "win_rate": None,
+                "playstyle_text": "설명",
+                "updated_at": datetime.now(UTC),
+            }
+        ],
+    )
+    db_session.commit()
+    comp_id = comp_ids["comp-z2"]
+
+    upsert_comp_traits(
+        db_session,
+        comp_id,
+        [{"riot_trait_id": "TFT17_Known", "style": 1, "num_units": 2}],
+        trait_ids,
+    )
+    db_session.commit()
+    upsert_comp_traits(
+        db_session,
+        comp_id,
+        [{"riot_trait_id": "TFT17_Known", "style": 4, "num_units": 6}],
+        trait_ids,
+    )
+    db_session.commit()
+
+    linked = db_session.scalars(
+        select(models.CompTrait).where(models.CompTrait.comp_id == comp_id)
+    ).all()
+    assert len(linked) == 1
+    assert linked[0].style == 4
+    assert linked[0].num_units == 6
 
 
 def _comp_row(riot_comp_id: str) -> dict:

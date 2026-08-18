@@ -26,6 +26,7 @@ from normalize import (
     champion_rows,
     comp_champion_rows,
     comp_rows,
+    comp_trait_rows,
     ensure_patch,
     item_rows,
     mark_stale_comps_inactive,
@@ -34,6 +35,7 @@ from normalize import (
     upsert_augments,
     upsert_champions,
     upsert_comp_champions,
+    upsert_comp_traits,
     upsert_comps,
     upsert_items,
     upsert_traits,
@@ -78,7 +80,7 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
             patch_version,
             champion_rows(state["cdragon_ko"], state["cdragon_en"], set_number),
         )
-        upsert_traits(
+        trait_ids = upsert_traits(
             session,
             patch_version,
             trait_rows(state["cdragon_ko"], state["cdragon_en"], set_number),
@@ -118,6 +120,7 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
                 upsert_comp_champions(
                     session, comp_id, comp_champion_rows(deck), champion_ids
                 )
+                upsert_comp_traits(session, comp_id, comp_trait_rows(deck), trait_ids)
 
     def step_embed() -> None:
         chunks = collect_chunks(session, state["patch_version"])[:MAX_CHUNKS_PER_RUN]
