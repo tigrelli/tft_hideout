@@ -2,11 +2,21 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from db.models import Augment, Champion, Comp, CompAugment, CompChampion, Item, Patch
+from db.models import (
+    Augment,
+    Champion,
+    Comp,
+    CompAugment,
+    CompChampion,
+    CompTrait,
+    Item,
+    Patch,
+    Trait,
+)
 from db.session import get_db
 from main import app
 
@@ -180,6 +190,67 @@ def test_comp_detail_not_found_returns_404(client: TestClient) -> None:
     response = client.get("/api/v1/catalog/comps/999999")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "comp_not_found"
+
+
+# ---- API-16: top4_rate/game_count/traits 노출 -------------------------------
+
+
+def test_comp_detail_returns_null_top4_rate_game_count_traits_when_absent(
+    client: TestClient, seeded_comp_id: int
+) -> None:
+    """DATA-22 컬럼 추가 전 배치가 채운 기존 행은 top4_rate/game_count가
+    NULL이고 시너지 매핑이 없으면 traits는 빈 리스트."""
+    response = client.get(f"/api/v1/catalog/comps/{seeded_comp_id}")
+    body = response.json()
+    assert body["top4_rate"] is None
+    assert body["game_count"] is None
+    assert body["traits"] == []
+
+
+def test_comp_detail_includes_top4_rate_game_count_and_traits(
+    migrated_engine: Engine, client: TestClient, seeded_comp_id: int
+) -> None:
+    with Session(migrated_engine) as session:
+        session.execute(
+            update(Comp)
+            .where(Comp.id == seeded_comp_id)
+            .values(top4_rate=0.81, game_count=1234)
+        )
+        session.execute(
+            insert(Trait).values(
+                patch_version="14.5",
+                riot_trait_id="TFT14_FakeTrait",
+                name_kr="가짜 특성",
+                name_en="FakeTrait",
+                tier_thresholds=[],
+            )
+        )
+        session.commit()
+        trait_id = session.execute(
+            select(Trait.id).where(Trait.riot_trait_id == "TFT14_FakeTrait")
+        ).scalar_one()
+        session.execute(
+            insert(CompTrait).values(
+                comp_id=seeded_comp_id, trait_id=trait_id, style=4, num_units=6
+            )
+        )
+        session.commit()
+
+    response = client.get(f"/api/v1/catalog/comps/{seeded_comp_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["top4_rate"] == 0.81
+    assert body["game_count"] == 1234
+    assert body["traits"] == [
+        {
+            "trait_id": trait_id,
+            "name_kr": "가짜 특성",
+            "name_en": "FakeTrait",
+            "style": 4,
+            "num_units": 6,
+        }
+    ]
 
 
 def test_comp_detail_item_name_falls_back_to_raw_id_when_unresolvable(

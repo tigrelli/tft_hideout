@@ -14,8 +14,10 @@ from db.models import (
     Comp,
     CompAugment,
     CompChampion,
+    CompTrait,
     Item,
     Patch,
+    Trait,
 )
 from db.session import get_db
 
@@ -36,6 +38,14 @@ class CarryChampion(BaseModel):
     square_icon_url: str | None
 
 
+class TraitInComp(BaseModel):
+    trait_id: int
+    name_kr: str
+    name_en: str
+    style: int  # op.gg style: 0(미발동)~4(프리즘 등급)
+    num_units: int
+
+
 class CompSummary(BaseModel):
     id: int
     name: str
@@ -43,8 +53,14 @@ class CompSummary(BaseModel):
     avg_place: float
     play_rate: float
     win_rate: float | None
+    # DATA-22: top4Rate(4등 이내 확률)·game_count(compsCount, 조합별 실제
+    # 표본 게임수 — totalCount는 집계구간 전체 공통분모라 다름, docs/spike/
+    # opgg-schema.md 10번). 이 컬럼 추가 전 배치가 채운 행은 None.
+    top4_rate: float | None
+    game_count: int | None
     playstyle_text: str
     carry_champions: list[CarryChampion]
+    traits: list[TraitInComp]
 
 
 class TierlistResponse(BaseModel):
@@ -62,6 +78,26 @@ def _not_found_error(code: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=404, detail={"error": {"code": code, "message": message}}
     )
+
+
+def _fetch_traits_for_comp(db: Session, comp_id: int) -> list[TraitInComp]:
+    """DATA-22 comp_traits 조회(API-16). style 내림차순(프리즘부터)으로 정렬."""
+    rows = db.execute(
+        select(CompTrait, Trait)
+        .join(Trait, Trait.id == CompTrait.trait_id)
+        .where(CompTrait.comp_id == comp_id)
+        .order_by(CompTrait.style.desc(), Trait.id)
+    ).all()
+    return [
+        TraitInComp(
+            trait_id=comp_trait.trait_id,
+            name_kr=trait.name_kr,
+            name_en=trait.name_en,
+            style=comp_trait.style,
+            num_units=comp_trait.num_units,
+        )
+        for comp_trait, trait in rows
+    ]
 
 
 def _resolve_patch(db: Session, patch: str | None) -> str:
@@ -109,9 +145,12 @@ class CompDetailResponse(BaseModel):
     avg_place: float
     play_rate: float
     win_rate: float | None
+    top4_rate: float | None
+    game_count: int | None
     playstyle_text: str
     champions: list[ChampionInComp]
     augments: list[AugmentInComp]
+    traits: list[TraitInComp]
 
 
 class ItemBuild(BaseModel):
@@ -232,8 +271,11 @@ def get_tierlist(
                 avg_place=comp.avg_place,
                 play_rate=comp.play_rate,
                 win_rate=comp.win_rate,
+                top4_rate=comp.top4_rate,
+                game_count=comp.game_count,
                 playstyle_text=comp.playstyle_text,
                 carry_champions=carry_champions,
+                traits=_fetch_traits_for_comp(db, comp.id),
             )
         )
 
@@ -327,9 +369,12 @@ def get_comp_detail(
         avg_place=comp.avg_place,
         play_rate=comp.play_rate,
         win_rate=comp.win_rate,
+        top4_rate=comp.top4_rate,
+        game_count=comp.game_count,
         playstyle_text=comp.playstyle_text,
         champions=champions,
         augments=augments,
+        traits=_fetch_traits_for_comp(db, comp_id),
     )
 
 

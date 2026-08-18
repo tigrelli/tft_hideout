@@ -2,11 +2,11 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from db.models import Champion, Comp, CompChampion, Patch
+from db.models import Champion, Comp, CompChampion, CompTrait, Patch, Trait
 from db.session import get_db
 from main import app
 
@@ -195,3 +195,84 @@ def test_tierlist_comp_without_carry_champion_has_empty_list(
     response = client.get("/api/v1/catalog/tierlist?patch=14.5")
     assert response.status_code == 200
     assert response.json()["comps"][0]["carry_champions"] == []
+
+
+# ---- API-16: top4_rate/game_count/traits 노출 -------------------------------
+
+
+def test_tierlist_comp_includes_top4_rate_and_game_count(
+    client: TestClient, seeded_engine: Engine
+) -> None:
+    with Session(seeded_engine) as session:
+        session.execute(
+            update(Comp)
+            .where(Comp.riot_comp_id == "fake-comp-reroll-yone")
+            .values(top4_rate=0.81, game_count=1234)
+        )
+        session.commit()
+
+    response = client.get("/api/v1/catalog/tierlist?patch=14.5")
+
+    assert response.status_code == 200
+    comp = response.json()["comps"][0]
+    assert comp["top4_rate"] == 0.81
+    assert comp["game_count"] == 1234
+
+
+def test_tierlist_comp_without_top4_rate_game_count_returns_null(
+    client: TestClient,
+) -> None:
+    """DATA-22 컬럼 추가 전 배치가 채운 기존 행은 top4_rate/game_count가 NULL."""
+    response = client.get("/api/v1/catalog/tierlist?patch=14.5")
+    assert response.status_code == 200
+    comp = response.json()["comps"][0]
+    assert comp["top4_rate"] is None
+    assert comp["game_count"] is None
+
+
+def test_tierlist_comp_includes_trait_composition(
+    client: TestClient, seeded_engine: Engine
+) -> None:
+    with Session(seeded_engine) as session:
+        comp_id = session.execute(
+            select(Comp.id).where(Comp.riot_comp_id == "fake-comp-reroll-yone")
+        ).scalar_one()
+        session.execute(
+            insert(Trait).values(
+                patch_version="14.5",
+                riot_trait_id="TFT14_FakeTrait",
+                name_kr="가짜 특성",
+                name_en="FakeTrait",
+                tier_thresholds=[],
+            )
+        )
+        session.commit()
+        trait_id = session.execute(
+            select(Trait.id).where(Trait.riot_trait_id == "TFT14_FakeTrait")
+        ).scalar_one()
+        session.execute(
+            insert(CompTrait).values(
+                comp_id=comp_id, trait_id=trait_id, style=3, num_units=4
+            )
+        )
+        session.commit()
+
+    response = client.get("/api/v1/catalog/tierlist?patch=14.5")
+
+    assert response.status_code == 200
+    comp = response.json()["comps"][0]
+    assert comp["traits"] == [
+        {
+            "trait_id": trait_id,
+            "name_kr": "가짜 특성",
+            "name_en": "FakeTrait",
+            "style": 3,
+            "num_units": 4,
+        }
+    ]
+
+
+def test_tierlist_comp_without_traits_has_empty_list(client: TestClient) -> None:
+    response = client.get("/api/v1/catalog/tierlist?patch=14.5")
+    assert response.status_code == 200
+    assert response.json()["comps"][0]["traits"] == []
