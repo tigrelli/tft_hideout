@@ -100,6 +100,25 @@ PM이 챗봇 답변에 아이템 효과 설명(예: "보석 건틀릿은 스킬�
 - **키워드 글로서리는 어디에도 없음**: `CommunityDragonClient().fetch_tft_data(lang="ko_kr")` 전체 응답의 top-level 키는 `items/setData/sets`뿐이라(재확인), `{{TFT_Keyword_*}}`를 해석해줄 별도 엔드포인트가 op.gg·Community Dragon 어디에도 없다. 4종뿐이라 DATA-07(is_legend_related)과 같은 성격의 **수동 유지 사전**으로 보강하는 것이 유일한 방법(PM 승인 필요, 정확한 문구는 착수 시 함께 정함).
 - **결론**: DATA-19/CHAT-14 진행 가능. `items.description` 컬럼 + DATA-16 클렌징 로직 재사용 + 4개 키워드 수동 사전으로 대부분의 아이템에 대해 PM이 원하는 수준의 설명을 만들 수 있다.
 
+## 10. `tft_list_meta_decks` 덱 1건의 전체 필드 구조 (2026-08-18 재확인, 미사용 필드 다수 발견)
+
+PM이 "승률/픽률/평균등수 외에 더 받아올 수 있는 정보가 있는지" 문의(TEST-11 카테고리 G 논의 중). 실호출로 덱 1건 전체를 확인한 결과, 6번 항목의 `stat` 샘플은 `deck` 하위 필드만 보여준 요약이었고 실제로는 훨씬 많은 필드가 있음이 확인됨. 현재 `batch/normalize.py`의 `comp_rows()`/`comp_champion_rows()`가 쓰는 필드는 극히 일부뿐:
+
+**현재 사용 중**: `id`, `name`(ko_KR만), `stat.deck.{avgPlacement,pickRate,winRate}`, `units[].{key,items,tier,cell,isCore}`
+
+**미사용 필드(전체 목록)**:
+- `stat.deck.{totalCount,compsCount,winCount,top4Count,top4Rate}` — **totalCount가 실제 표본 게임 수**(예 1,336,188), **top4Rate는 4등 이내 확률**(승률과 별개 핵심 지표, 예 0.8107). 둘 다 op.gg 웹사이트 카드에 흔히 노출되는 정보인데 이 저장소는 안 씀.
+- `stat.opScore` — op.gg 자체 종합 점수(DATA-21이 자체 tier_rank로 대체했지만 opScore 자체는 참고용으로 남겨둘 수 있음)
+- `stat.label{}` — `stat.deck`과 동일 구조(totalCount/avgPlacement/winRate/top4Rate 등)의 **별도 집계 세트** — `deck` vs `label`의 정확한 의미 차이(변형 통합 여부로 추정)는 미확인, 필요시 추가 조사.
+- `traits[]` — 조합이 실제 발동하는 시너지 목록: `{key, style(0~4, 브론즈~프리즘), numUnits}`. 조합 상세 페이지에 시너지 구성을 보여주려면 필요한데 현재 DB 미반영.
+- `badge[]` — 플레이스타일 배지: `{key: "difficulty"|"tempo"|"reroll"|"honey"|"ppm", value}`. `difficulty`(정수)·`reroll`(정수)은 의미가 비교적 명확하나 `honey`(boolean)·`ppm`(문자열 "high" 등)은 의미 불명확 — 사용하려면 op.gg 표기 대조 등 추가 조사 필요.
+- `early{}` / `middle{}` — 레벨 5(초반)·레벨 7(중반) 시점 스냅샷: `units[]`(챔피언+셀, 아이템 정보는 없음), `traits[]`, `play`/`win`/`lose`(그 시점 표본 게임수). 초반→중반 전환 경로를 보여주는 플레이 가이드용 데이터인데 완전 미사용.
+- `cost` — 조합 총 코스트 합
+- `teamCode` — op.gg 내부 조합 인코딩 문자열(용도 불명, 아마 웹사이트 URL/공유 코드용)
+- `metadata.gameStatCounts`/`metadata.gameStatDateTime` — 최상위(개별 덱이 아닌 전체) 표본수·집계시각, `_parse_updated_at()`이 `gameStatDateTime`만 이미 사용 중.
+
+**참고**: 이 구조는 2026-08-04(DATA-05) 이후 재확인이라 필드가 그때와 달라졌을 가능성 배제 못함(예: `stat.label`은 이번에 처음 관찰) — 실제 활용 TASK 착수 시 다시 한번 raw 응답을 확인할 것.
+
 ## 다음 세션을 위한 메모
 
 - DATA-08 구현 시 이 문서의 연결 방식(세션 핸드셰이크)과 도구별 응답 구조를 그대로 fixture 스키마 근거로 사용할 것. 값은 정책(CLAUDE.md 10.2)에 따라 합성 데이터로 치환.
