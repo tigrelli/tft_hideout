@@ -9,6 +9,7 @@ import { BackButton } from "@/components/comp-detail/back-button";
 import { ChampionList } from "@/components/comp-detail/champion-list";
 import { CompOverview } from "@/components/comp-detail/comp-overview";
 import { HexBoard } from "@/components/comp-detail/hex-board";
+import { TraitList } from "@/components/comp-detail/trait-list";
 
 // 화면설계서 2.2: single-column — header(back-btn) / overview / champion-list /
 // augment-list / chat-widget-slot(전역, layout.tsx). cta(아이템 빌드 더보기)는
@@ -79,6 +80,7 @@ export function CompDetailView() {
           <HexBoard champions={comp.champions} />
         </div>
       </div>
+      <TraitList traits={comp.traits} />
       <AugmentList augments={comp.augments} />
     </div>
   );

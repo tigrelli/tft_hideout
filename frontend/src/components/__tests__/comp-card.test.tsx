@@ -10,6 +10,8 @@ const comp: CompSummary = {
   avg_place: 3.2,
   play_rate: 0.18,
   win_rate: 0.19,
+  top4_rate: 0.72,
+  game_count: 1000,
   playstyle_text: "리롤 성향 강함",
   carry_champions: [
     {
@@ -20,6 +22,7 @@ const comp: CompSummary = {
     { champion_id: 20, name_kr: "아리", square_icon_url: null },
     { champion_id: 30, name_kr: "징크스", square_icon_url: null },
   ],
+  traits: [],
 };
 
 describe("CompCard", () => {

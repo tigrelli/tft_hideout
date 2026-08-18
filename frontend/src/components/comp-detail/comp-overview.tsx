@@ -15,8 +15,14 @@ export function CompOverview({ comp }: { comp: CompDetailResponse }) {
           <span className="text-h2 text-text-primary">{comp.name}</span>
           <TierBadge tier={comp.tier_rank} />
         </div>
+        {/* API-16/FE-18: top4_rate·game_count는 DATA-22 컬럼 추가 전 배치가
+            채운 조합에서는 null이라 조건부로만 이어붙인다. */}
         <p className="mt-2 text-caption text-text-secondary">
           평균등수 {comp.avg_place.toFixed(1)}
+          {comp.top4_rate !== null &&
+            ` · 4등 이내 ${Math.round(comp.top4_rate * 100)}%`}
+          {comp.game_count !== null &&
+            ` · 표본 ${comp.game_count.toLocaleString()}게임`}
         </p>
         <p className="mt-1 text-body text-text-secondary">
           {comp.playstyle_text}

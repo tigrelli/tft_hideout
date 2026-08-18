@@ -17,6 +17,8 @@ const mockCompDetail: CompDetailResponse = {
   avg_place: 3.2,
   play_rate: 0.18,
   win_rate: 0.19,
+  top4_rate: 0.72,
+  game_count: 1000,
   playstyle_text: "리롤 성향 강함",
   champions: [
     {
@@ -48,6 +50,15 @@ const mockCompDetail: CompDetailResponse = {
   ],
   augments: [
     { augment_id: 1, name_kr: "완전무장", name_en: "Full Armory", priority: 1 },
+  ],
+  traits: [
+    {
+      trait_id: 1,
+      name_kr: "마법사",
+      name_en: "Sorcerer",
+      style: 3,
+      num_units: 4,
+    },
   ],
 };
 
@@ -90,6 +101,33 @@ describe("CompDetailView — mock API 데이터 바인딩", () => {
     // 두 곳에 나타난다.
     expect(screen.getAllByText("요네").length).toBeGreaterThan(0);
     expect(screen.getByText("완전무장")).toBeInTheDocument();
+    // API-16/FE-18: 4등이내확률·표본게임수·시너지 구성 렌더링 확인.
+    expect(screen.getByText(/4등 이내 72%/)).toBeInTheDocument();
+    expect(screen.getByText(/표본 1,000게임/)).toBeInTheDocument();
+    expect(screen.getByText("마법사 4")).toBeInTheDocument();
+  });
+
+  it("top4_rate·game_count가 null(구 데이터)이면 해당 부분을 생략하고, traits가 비어있으면 시너지 구성 섹션을 렌더링하지 않는다", async () => {
+    mockSearchParams.set("id", "1");
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...mockCompDetail,
+        top4_rate: null,
+        game_count: null,
+        traits: [],
+      }),
+    } as Response);
+
+    render(<CompDetailView />);
+
+    await waitFor(() =>
+      expect(screen.getByText("아이오니아 마법사")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/평균등수 3\.2/)).toBeInTheDocument();
+    expect(screen.queryByText(/4등 이내/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/표본/)).not.toBeInTheDocument();
+    expect(screen.queryByText("시너지 구성")).not.toBeInTheDocument();
   });
 
   it("조회 실패 시 에러 문구를 보여준다", async () => {

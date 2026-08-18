@@ -6,6 +6,15 @@ export interface CarryChampion {
   square_icon_url: string | null;
 }
 
+// API-16: op.gg style 0(미발동)~4(프리즘 등급).
+export interface TraitInComp {
+  trait_id: number;
+  name_kr: string;
+  name_en: string;
+  style: number;
+  num_units: number;
+}
+
 export interface CompSummary {
   id: number;
   name: string;
@@ -13,8 +22,12 @@ export interface CompSummary {
   avg_place: number;
   play_rate: number;
   win_rate: number | null;
+  // DATA-22/API-16: 이 컬럼 추가 전 배치가 채운 조합은 null.
+  top4_rate: number | null;
+  game_count: number | null;
   playstyle_text: string;
   carry_champions: CarryChampion[];
+  traits: TraitInComp[];
 }
 
 export interface TierlistResponse {
@@ -51,9 +64,12 @@ export interface CompDetailResponse {
   avg_place: number;
   play_rate: number;
   win_rate: number | null;
+  top4_rate: number | null;
+  game_count: number | null;
   playstyle_text: string;
   champions: ChampionInComp[];
   augments: AugmentInComp[];
+  traits: TraitInComp[];
 }
 
 export interface ItemBuild {
