@@ -12,6 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from db.models import EMBEDDING_DIM, ChatLog, Champion, MetaDocumentEmbedding, Patch
+from services.chat_preprocessing import CHATBOT_META_ANSWERS
 from services.chat_stream import (
     CLARIFICATION_MESSAGE,
     FALLBACK_MESSAGE,
@@ -181,6 +182,54 @@ def test_off_topic_keyword_miss_but_llm_confirms_on_topic_continues_pipeline(
         )
     )
     assert tokens == ["생성된", "답변"]
+
+
+# CHAT-26: 챗봇 자기 자신에 대한 메타 질문(TEST-11 카테고리 G/H10)은
+# is_off_topic() 판정보다도 먼저 감지돼야 한다 — patch_version 조회조차 필요
+# 없는 가장 이른 조기 반환이라 patch 데이터가 없는 순수 migrated_engine으로도
+# 검증한다(offtopic_confirm_fn/classify_fn/search_fn/web_search_fn/stream_fn
+# 전부 호출되지 않아야 함).
+def test_chatbot_meta_query_short_circuits_without_calling_pipeline(
+    migrated_engine: Engine,
+) -> None:
+    with Session(migrated_engine) as session:
+        tokens = list(
+            generate_answer_stream(
+                session,
+                "11111111-1111-1111-1111-111111111111",
+                "너는 라이엇게임즈 소속이야, 아니면 별도 서비스야?",
+                embed_fn=_fail_if_called("embed_fn"),
+                offtopic_confirm_fn=_fail_if_called("offtopic_confirm_fn"),
+                classify_fn=_fail_if_called("classify_fn"),
+                search_fn=_fail_if_called("search_fn"),
+                web_search_fn=_fail_if_called("web_search_fn"),
+                stream_fn=_fail_if_called("stream_fn"),
+            )
+        )
+    assert " ".join(tokens) == CHATBOT_META_ANSWERS["identity"]
+
+
+def test_chatbot_meta_feedback_complaint_short_circuits(
+    migrated_engine: Engine,
+) -> None:
+    """H10(TEST-11 카테고리 H 실행 중 자체 발견, 2026-08-19): "도움이 하나도
+    안 되네" 같은 메타 피드백/불만이 날씨 질문과 동일한 정형 오프토픽 거절로
+    응대되던 문제 — feedback_complaint 버킷도 같은 조기 반환 경로를 탄다."""
+    with Session(migrated_engine) as session:
+        tokens = list(
+            generate_answer_stream(
+                session,
+                "11111111-1111-1111-1111-111111111111",
+                "너 진짜 도움이 하나도 안 되네",
+                embed_fn=_fail_if_called("embed_fn"),
+                offtopic_confirm_fn=_fail_if_called("offtopic_confirm_fn"),
+                classify_fn=_fail_if_called("classify_fn"),
+                search_fn=_fail_if_called("search_fn"),
+                web_search_fn=_fail_if_called("web_search_fn"),
+                stream_fn=_fail_if_called("stream_fn"),
+            )
+        )
+    assert " ".join(tokens) == CHATBOT_META_ANSWERS["feedback_complaint"]
 
 
 def test_no_current_patch_returns_fixed_message(migrated_engine: Engine) -> None:

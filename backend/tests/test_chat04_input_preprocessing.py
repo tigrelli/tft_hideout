@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 
 from db.models import ChatLog, Patch
 from services.chat_preprocessing import (
+    CHATBOT_META_ANSWERS,
     MAX_QUERY_LENGTH,
     USER_MESSAGE_DELIMITER_END,
     USER_MESSAGE_DELIMITER_START,
     confirm_off_topic,
+    detect_chatbot_meta_topic,
     get_conversation_history,
     is_off_topic,
     is_patch_version_query,
@@ -271,3 +273,64 @@ def test_get_conversation_history_returns_only_recent_3_turns(
         history = get_conversation_history(db, SESSION_ID)
 
     assert [log.user_query for log in history] == ["2턴 질문", "3턴 질문", "4턴 질문"]
+
+
+# CHAT-26: 챗봇 자기 자신에 대한 메타 질문(TEST-11 카테고리 G, 15문항 + H10)이
+# is_off_topic() 판정보다 먼저 결정론적으로 감지되는지 확인한다.
+@pytest.mark.parametrize(
+    ("query", "expected_topic"),
+    [
+        ("너는 어떤 걸 도와줄 수 있어?", "capability"),
+        ("실시간 패치 정보도 알려줄 수 있어?", "realtime_patch"),
+        ("내 최근 전적을 분석해줄 수 있어?", "match_analysis"),
+        ("특정 챔피언의 최신 승률/픽률을 알려줄 수 있어?", "realtime_stats"),
+        ("지금 답변이 오늘 날짜 기준 최신 정보인가요?", "realtime_patch"),
+        ("TFT 말고 다른 게임(롤, 발로란트) 질문도 답해줄 수 있어?", "other_game"),
+        ("너의 정보 출처는 어디야?", "source"),
+        ("답변이 틀렸을 때 어떻게 신고하거나 고칠 수 있어?", "feedback_report"),
+        ("한국 서버 기준으로 답해주는 거야, 아니면 글로벌 기준이야?", "region"),
+        ("음성으로 질문해도 답해줄 수 있어?", "voice"),
+        ("스크린샷(이미지)을 보여주면 이해할 수 있어?", "image"),
+        ("이전에 물어본 내용을 계속 기억해?", "memory"),
+        ("닉네임이나 계정 정보를 입력해도 안전해?", "privacy"),
+        ("너는 라이엇게임즈 소속이야, 아니면 별도 서비스야?", "identity"),
+        ("답변을 영어나 다른 언어로도 받을 수 있어?", "language"),
+        ("너 진짜 도움이 하나도 안 되네", "feedback_complaint"),
+    ],
+)
+def test_detect_chatbot_meta_topic_matches_all_g_and_h10_questions(
+    query: str, expected_topic: str
+) -> None:
+    assert detect_chatbot_meta_topic(query) == expected_topic
+
+
+def test_detect_chatbot_meta_topic_returns_none_for_normal_tft_questions() -> None:
+    assert detect_chatbot_meta_topic("이번 패치 최강 조합 추천해줘") is None
+    assert detect_chatbot_meta_topic("보석건틀릿 효과는?") is None
+    assert detect_chatbot_meta_topic("현재 패치버전은?") is None
+
+
+def test_detect_chatbot_meta_topic_does_not_flag_chitchat_as_meta() -> None:
+    # 챗봇 메타 질문이 아닌 일반 잡담은 off_topic 경로로 그대로 넘어가야 한다.
+    assert detect_chatbot_meta_topic("오늘 점심 뭐 먹지") is None
+
+
+def test_detect_chatbot_meta_topic_requires_capability_suffix_for_realtime_stats() -> (
+    None
+):
+    # "실시간 승률 알려줘"류 순수 통계 요청은 조합/아이템 검색 경로로 그대로
+    # 보내야 한다(챗봇 능력을 묻는 게 아니라 통계 자체를 요청하는 문장이므로
+    # capability-asking 접미사가 없으면 매칭하지 않는다).
+    assert detect_chatbot_meta_topic("이 챔피언 실시간 승률 알려줘") is None
+
+
+def test_detect_chatbot_meta_topic_requires_account_context_for_privacy() -> None:
+    # "이 조합 안전해?"처럼 "안전" 단독으로는 매칭하지 않는다(계정/닉네임 문맥 필수).
+    assert detect_chatbot_meta_topic("이 조합 안전해?") is None
+
+
+def test_chatbot_meta_answers_cover_every_detectable_topic() -> None:
+    from services.chat_preprocessing import _CHATBOT_META_TOPICS
+
+    topics = {topic for topic, _pattern in _CHATBOT_META_TOPICS}
+    assert topics == set(CHATBOT_META_ANSWERS.keys())

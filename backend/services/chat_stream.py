@@ -21,6 +21,8 @@ from services.chat_postprocessing import (
     strip_internal_doc_marker_leak,
 )
 from services.chat_preprocessing import (
+    CHATBOT_META_ANSWERS,
+    detect_chatbot_meta_topic,
     get_conversation_history,
     is_patch_version_query,
     preprocess_input,
@@ -260,7 +262,7 @@ def generate_answer_stream(
     있어 "왜 승률이 높은가" 같은 원인 분석 질문에 답할 재료가 아예 없다 — 후속
     질문 생성(chat_followups.generate_followup_questions)이 이 여부에 따라
     원인 분석형 후속 질문을 제안할지 판단하는 데 쓴다. 명확화/범위밖/
-    패치없음/패치버전질의(CHAT-19) 조기 반환, Groq 완전 실패로 인한 폴백 메시지, retrieved_docs가
+    패치없음/패치버전질의(CHAT-19)/챗봇메타질의(CHAT-26) 조기 반환, Groq 완전 실패로 인한 폴백 메시지, retrieved_docs가
     빈 턴("해당 정보는 확인되지 않았다" 류 답변)에는 채우지 않는다(LLM 부재
     없이 호출측 기본값 [] 그대로 유지 = FollowupChips hidden — 이 경우들은
     후속질문을 만들 실질적 내용이 없거나, 근거 문서가 없어 만들어봐야
@@ -271,6 +273,17 @@ def generate_answer_stream(
     if preprocessed.needs_clarification:
         yield CLARIFICATION_MESSAGE
         return
+
+    # CHAT-26: 챗봇 자기 자신에 대한 메타 질문(기능 범위/데이터 최신성/정체성 등)은
+    # is_off_topic() 판정보다 먼저 감지해야 한다 — TFT 게임 콘텐츠 키워드가 거의
+    # 없어 그대로 두면 아래 off_topic 분기(1차 후보 판정 후 2차 LLM 확인)에서
+    # "무관한 잡담"으로 오판돼 정형 거절 메시지로 회피되기 때문(TEST-11 카테고리 G,
+    # 15문항 중 11건 재현). 검색·LLM 호출 없이 고정 FAQ로 결정론적으로 즉답한다.
+    chatbot_meta_topic = detect_chatbot_meta_topic(preprocessed.normalized_text)
+    if chatbot_meta_topic is not None:
+        yield from CHATBOT_META_ANSWERS[chatbot_meta_topic].split(" ")
+        return
+
     if preprocessed.is_off_topic and offtopic_confirm_fn(preprocessed.normalized_text):
         yield OFF_TOPIC_MESSAGE
         return
