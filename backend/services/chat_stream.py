@@ -24,8 +24,10 @@ from services.chat_postprocessing import (
 from services.chat_preprocessing import (
     CHATBOT_META_ANSWERS,
     detect_chatbot_meta_topic,
+    detect_multi_topic_signals,
     get_conversation_history,
     is_patch_version_query,
+    multi_topic_labels,
     preprocess_input,
 )
 from services.current_patch import get_current_patch_version
@@ -41,6 +43,8 @@ from services.intent_classification import (
 from services.prompt_assembly import (
     assemble_general_rules_system_turn,
     assemble_general_rules_user_turn,
+    assemble_multi_topic_system_turn,
+    assemble_multi_topic_user_turn,
     assemble_system_turn,
     assemble_user_turn,
     assemble_web_search_system_turn,
@@ -293,6 +297,55 @@ def _generate_general_rules_answer(
     yield from final_answer.split(" ")
 
 
+# CHAT-32: chat_logs.intent 컬럼은 자유 문자열이라(VALID_INTENTS는 classify_by_llm의
+# 폴백 검증 전용) 6개 정식 의도와 구분되는 이 값으로 다중 주제 질의를 별도
+# 식별해 KPI 집계 등에서 구분할 수 있게 한다.
+MULTI_TOPIC_INTENT_LABEL = "multi_topic"
+
+
+def _generate_multi_topic_answer(
+    db: Session,
+    *,
+    session_id: str,
+    patch_version: str,
+    normalized_text: str,
+    topics: list[str],
+    wrapped_text: str,
+    stream_fn: Callable[[str, str], Generator[str, None, None]],
+) -> Generator[str, None, None]:
+    """CHAT-32: 한 질문에 서로 다른 주제 2개 이상이 섞인 다중 주제 질의
+    전용 답변 생성(TEST-11 H12). general_rules와 동일하게 검색을 생략하고
+    LLM에게 감지된 주제를 전부 항목별로 답하도록 강제한다 — 주제별로 각각
+    검색·LLM 호출을 반복하면 구조가 복잡해지고 Groq 호출도 늘어나 과거 TPD
+    소진 사고(CHAT-23/24)와 같은 위험이 커져, 단일 호출로 항목 분해만
+    강제하는 가벼운 접근을 택했다(PM 결정 2026-08-19). 캐시(CHAT-08)·
+    후속질문(CHAT-11)은 general_rules/general_game_info와 동일하게 이번
+    범위에서 지원하지 않는다."""
+    system_prompt = assemble_multi_topic_system_turn()
+    user_prompt = assemble_multi_topic_user_turn(
+        multi_topic_labels(topics), wrapped_text
+    )
+
+    started_at = time.monotonic()
+    raw_answer = "".join(stream_llm_answer(system_prompt, user_prompt, stream_fn))
+    processed_answer = strip_internal_doc_marker_leak(raw_answer)
+    final_answer = mask_augment_win_rate_leak(processed_answer)
+    latency_ms = int((time.monotonic() - started_at) * 1000)
+
+    record_chat_log(
+        db,
+        session_id=session_id,
+        patch_version=patch_version,
+        user_query=normalized_text,
+        intent=MULTI_TOPIC_INTENT_LABEL,
+        retrieved_docs=[],
+        answer=final_answer,
+        latency_ms=latency_ms,
+    )
+
+    yield from final_answer.split(" ")
+
+
 def generate_answer_stream(
     db: Session,
     session_id: str,
@@ -371,6 +424,23 @@ def generate_answer_stream(
     # 결정론적으로 즉답한다(다른 조기 반환과 동일하게 로깅·캐시 대상 아님).
     if is_patch_version_query(preprocessed.normalized_text):
         yield from _patch_version_answer(patch_version).split(" ")
+        return
+
+    # CHAT-32: 한 질문에 서로 다른 주제 2개 이상이 섞이면(예: "아이템
+    # 조합표랑 이번 패치노트랑 랭크 시스템 다 한 번에 알려줘") 단일 의도
+    # 분류·단일 검색으로는 하나만 답하고 나머지를 침묵하게 된다(TEST-11
+    # H12). 의도분류보다 먼저 감지해 항목별 분해 답변 경로로 보낸다.
+    multi_topics = detect_multi_topic_signals(preprocessed.normalized_text)
+    if len(multi_topics) >= 2:
+        yield from _generate_multi_topic_answer(
+            db,
+            session_id=session_id,
+            patch_version=patch_version,
+            normalized_text=preprocessed.normalized_text,
+            topics=multi_topics,
+            wrapped_text=preprocessed.wrapped_text,
+            stream_fn=stream_fn,
+        )
         return
 
     # CHAT-08: 대화 이력이 없는 첫 턴 질문만 캐시 대상(같은 문장도 후속 턴에서는

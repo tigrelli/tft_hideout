@@ -247,6 +247,44 @@ CHATBOT_META_ANSWERS: dict[str, str] = {
 }
 
 
+# CHAT-32(PM 요청, TEST-11 H12에서 발견 2026-08-19): "아이템 조합표랑 이번
+# 패치노트랑 랭크 시스템 다 한 번에 알려줘"처럼 서로 다른 주제 여러 개를 한
+# 질문에 요청하면, 기존 의도분류는 카테고리 하나만 골라 그 주제만 답하고
+# 나머지는 통째로 침묵했다(H12 실측 — 아이템 이름 나열 1개 + 무관한 조합
+# 설명뿐, 패치노트·랭크 시스템은 언급조차 없음). 2개 이상 주제 신호가 동시에
+# 감지되면 의도분류를 거치지 않고 별도 다중 주제 답변 경로(chat_stream.py의
+# _generate_multi_topic_answer)로 보낸다.
+_MULTI_TOPIC_SIGNALS: dict[str, re.Pattern[str]] = {
+    "item_combination": re.compile(r"아이템\s*조합표?|아이템\s*빌드"),
+    "patch_notes": re.compile(r"패치\s*노트|패치\s*내용"),
+    "rank_system": re.compile(r"랭크\s*(시스템|티어)"),
+    "comp_recommendation": re.compile(r"조합\s*추천|메타\s*조합"),
+    "augment": re.compile(r"증강체|오그먼트"),
+}
+
+_MULTI_TOPIC_LABELS: dict[str, str] = {
+    "item_combination": "아이템 조합",
+    "patch_notes": "패치노트",
+    "rank_system": "랭크 시스템",
+    "comp_recommendation": "조합 추천",
+    "augment": "증강체",
+}
+
+
+def detect_multi_topic_signals(normalized_text: str) -> list[str]:
+    """2개 이상 매칭되면 다중 주제 질의로 취급한다(호출측이 len()>=2로 판단).
+    반환값 순서는 _MULTI_TOPIC_SIGNALS 선언 순서를 따른다."""
+    return [
+        topic
+        for topic, pattern in _MULTI_TOPIC_SIGNALS.items()
+        if pattern.search(normalized_text)
+    ]
+
+
+def multi_topic_labels(topics: list[str]) -> list[str]:
+    return [_MULTI_TOPIC_LABELS[topic] for topic in topics]
+
+
 def detect_chatbot_meta_topic(normalized_text: str) -> str | None:
     """챗봇 자신에 대한 메타 질문을 감지해 매칭된 주제 키를 반환한다(매칭 없으면 None).
     여러 버킷이 동시에 매칭될 수 있는 문장은 드물다고 보고 첫 매칭을 그대로 쓴다
