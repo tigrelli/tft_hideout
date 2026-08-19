@@ -43,6 +43,20 @@ def call_groq_chat(
     return response.choices[0].message.content or ""
 
 
+# CHAT-34(TEST-11 D1 조사, 2026-08-19): D1("TFT 랭크 티어는 몇 단계로
+# 나뉘나요?")이 실제 검색 결과(9개 티어명이 전부 포함된 출처)를 받고도 4개
+# 티어만 나열하고 중도에 포기한 사례를 실측 API 호출 6회로 재현 시도 —
+# 동일 프롬프트로 4회 재실행 시 전부 finish_reason="stop"으로 완전한 답변
+# (9~10단계 전체 나열)이 나왔고, reasoning_effort="low"로 낮춘 2회는 오히려
+# reasoning_tokens가 급감(44~47)하며 답변 자체를 포기("확인되지 않았습니다")
+# 하는 역효과가 확인됨 — 결정론적 토큰 부족 버그가 아니라 reasoning 모델의
+# 확률적 변동(가끔 답변을 도중에 포기하는 경향)으로 판단, reasoning_effort는
+# 건드리지 않는다(PM 결정 2026-08-19). 다만 실측 관측된 최대 사용량(완전한
+# 답변 기준 completion_tokens 430~559)보다 충분히 큰 상한을 명시적으로 둬,
+# 혹시 모를 폭주 케이스에 대한 방어망만 추가한다(정상 동작에는 영향 없음).
+_MAIN_ANSWER_MAX_TOKENS = 1500
+
+
 def stream_groq_chat(
     system_prompt: str, user_message: str
 ) -> Generator[str, None, None]:
@@ -56,6 +70,7 @@ def stream_groq_chat(
             {"role": "user", "content": user_message},
         ],
         temperature=0.3,
+        max_tokens=_MAIN_ANSWER_MAX_TOKENS,
         stream=True,
     )
     for chunk in stream:
