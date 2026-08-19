@@ -46,7 +46,11 @@ from services.prompt_assembly import (
     assemble_web_search_system_turn,
     assemble_web_search_user_turn,
 )
-from services.web_search import WebSearchResult, verify_web_citation
+from services.web_search import (
+    WebSearchResult,
+    verify_web_citation,
+    verify_web_content_grounding,
+)
 
 CLARIFICATION_MESSAGE = (
     "질문을 조금 더 구체적으로 입력해주시겠어요? 예: '지금 메타에서 강한 조합 추천해줘'"
@@ -222,6 +226,7 @@ def _generate_web_search_answer(
     processed_answer = mask_augment_win_rate_leak(processed_answer)
     processed_answer = _strip_citation_when_no_info(processed_answer)
     final_answer = verify_web_citation(processed_answer, web_results)
+    final_answer = verify_web_content_grounding(final_answer, web_results)
     latency_ms = int((time.monotonic() - started_at) * 1000)
 
     # CHAT-09와 동일 원칙: 의도·패치버전이 확정된(=Tavily 호출까지는 성공한)

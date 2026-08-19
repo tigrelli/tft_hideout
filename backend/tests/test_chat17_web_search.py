@@ -235,7 +235,11 @@ def test_general_game_info_uses_web_search_not_internal_rag(
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),
             web_search_fn=lambda q: [
-                WebSearchResult(title="Set 18", url="https://a.example/1", content="c")
+                WebSearchResult(
+                    title="Set 18",
+                    url="https://a.example/1",
+                    content="Set 18은 2026-08-12에 출시",
+                )
             ],
             stream_fn=fake_stream_fn,
         )

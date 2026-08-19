@@ -45,6 +45,21 @@ def is_authoritative_source(url: str) -> bool:
 
 UNVERIFIED_SOURCE_WARNING = "(주의: 위 답변에 포함된 출처 링크 중 일부는 실제 검색 결과에서 확인되지 않았습니다.)"
 
+# CHAT-30(TEST-11 H15에서 발견, 2026-08-19): verify_web_citation()은 URL이
+# 실제 검색 결과에 있는지만 확인할 뿐, 본문 내용 자체(세트 번호·날짜 등
+# 구체적 사실)가 검색 결과에 실재하는지는 검증하지 않는다 — H15가 실제
+# 검색 결과에 전혀 없는 "세트 15"/"세트 14"를 구체적으로 단정한 사례가
+# 실측 확인됨(할루시네이션 URL이라 UNVERIFIED_SOURCE_WARNING은 붙었지만,
+# 본문 내용의 근거 없음은 별도로 안 걸러졌음).
+UNGROUNDED_CONTENT_WARNING = (
+    "(주의: 위 답변에 포함된 세트 번호·날짜 등 구체적 사실 중 일부는 "
+    "실제 검색 결과에서 확인되지 않았습니다.)"
+)
+_SET_NUMBER_PATTERN = re.compile(r"세트\s*(\d+)")
+_EXPLICIT_DATE_PATTERN = re.compile(
+    r"\d{4}-\d{2}-\d{2}|\d{4}년\s*\d{1,2}월(?:\s*\d{1,2}일)?"
+)
+
 # URL 뒤에 붙는 문장부호(마침표·쉼표·괄호 등)는 URL의 일부가 아니므로 매칭 시
 # 제거한다. 정규식 문자 클래스 자체에서 ')'/']'/공백을 제외해 대부분의 경우는
 # 이미 걸러지지만, 문장 종결 마침표(URL에서 유효 문자라 정규식만으로는 못 거름)
@@ -106,3 +121,21 @@ def verify_web_citation(answer_text: str, web_results: list[WebSearchResult]) ->
     if not has_hallucinated_url and not has_orphaned_citation:
         return answer_text
     return f"{answer_text}\n\n{UNVERIFIED_SOURCE_WARNING}"
+
+
+def verify_web_content_grounding(
+    answer_text: str, web_results: list[WebSearchResult]
+) -> str:
+    """CHAT-30: verify_web_citation()이 놓치는 "본문 내용 자체의 근거 없음"을
+    잡는 결정론적 사후 점검(CHAT-06 verify_grounding()과 동일 원칙) — 답변에
+    등장하는 세트 번호·명시적 날짜가 실제 검색 결과 본문(title+content)에
+    하나도 없으면 경고를 붙인다. URL이 맞더라도 본문 내용은 LLM이 그 URL과
+    무관하게 지어낼 수 있어(H15 실측) 별도로 검증한다."""
+    combined_content = " ".join(f"{r.title} {r.content}" for r in web_results)
+    claimed_sets = set(_SET_NUMBER_PATTERN.findall(answer_text))
+    grounded_sets = set(_SET_NUMBER_PATTERN.findall(combined_content))
+    claimed_dates = set(_EXPLICIT_DATE_PATTERN.findall(answer_text))
+    grounded_dates = set(_EXPLICIT_DATE_PATTERN.findall(combined_content))
+    if claimed_sets <= grounded_sets and claimed_dates <= grounded_dates:
+        return answer_text
+    return f"{answer_text}\n\n{UNGROUNDED_CONTENT_WARNING}"
