@@ -52,6 +52,14 @@ UNVERIFIED_SOURCE_WARNING = "(주의: 위 답변에 포함된 출처 링크 중 
 _URL_PATTERN = re.compile(r"https?://[^\s)\]]+")
 _URL_TRAILING_PUNCTUATION = ".,;:!?)]'\""
 
+# CHAT-29(TEST-11 E4·E15에서 발견, 2026-08-19): "[출처 1] [출처 2]"/"[출처]"처럼
+# 라벨만 있고 뒤에 URL이 아예 없는 답변이 실측 확인됐다. 기존 검증은
+# urls_in_answer가 하나도 없으면("URL 자체가 없음") 검증할 게 없다고 보고
+# 그냥 통과시켰는데, 라벨만 있고 실제 링크가 없는 인용은 할루시네이션
+# URL만큼이나 신뢰할 수 없어(클릭해도 아무 데도 안 감) 같은 경고 대상으로
+# 취급한다.
+_ORPHANED_CITATION_PATTERN = re.compile(r"\[출처(?:\s*\d+)?\](?!\s*\()")
+
 
 @dataclass
 class WebSearchResult:
@@ -86,14 +94,15 @@ def search_web(
 
 def verify_web_citation(answer_text: str, web_results: list[WebSearchResult]) -> str:
     """CHAT-06 verify_grounding()과 동일한 원칙(결정론적 사후 점검) — 답변에
-    포함된 URL이 전부 실제 검색 결과 URL이면 그대로 반환, 검색 결과에 없는
-    (할루시네이션) URL이 하나라도 있으면 경고 문구를 답변 끝에 덧붙인다."""
+    포함된 URL이 전부 실제 검색 결과 URL이고 모든 "[출처]" 라벨에 URL이
+    붙어있으면 그대로 반환. 검색 결과에 없는(할루시네이션) URL이 있거나,
+    URL이 아예 없는 "[출처]" 라벨(CHAT-29)만 있어도 경고 문구를 덧붙인다."""
     urls_in_answer = _URL_PATTERN.findall(answer_text)
-    if not urls_in_answer:
-        return answer_text
     known_urls = {result.url for result in web_results}
-    if all(
+    has_hallucinated_url = urls_in_answer and not all(
         url.rstrip(_URL_TRAILING_PUNCTUATION) in known_urls for url in urls_in_answer
-    ):
+    )
+    has_orphaned_citation = _ORPHANED_CITATION_PATTERN.search(answer_text) is not None
+    if not has_hallucinated_url and not has_orphaned_citation:
         return answer_text
     return f"{answer_text}\n\n{UNVERIFIED_SOURCE_WARNING}"

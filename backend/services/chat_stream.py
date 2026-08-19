@@ -4,6 +4,7 @@
 여기서 최종 배선된다."""
 
 import json
+import re
 import sys
 import time
 from collections.abc import Callable, Generator
@@ -83,6 +84,22 @@ _NO_GROUNDED_INFO_MARKERS = ("확인되지 않았", "제공되지 않았", "정�
 
 def _looks_like_no_info_answer(answer_text: str) -> bool:
     return any(marker in answer_text for marker in _NO_GROUNDED_INFO_MARKERS)
+
+
+# CHAT-29(TEST-11 B6에서 발견, 2026-08-19): 웹검색 경로(general_game_info)가
+# "확인되지 않았습니다"류 무정보 답변을 하면서도, 실제로는 질문에 답하는 데
+# 쓰지 않은 출처를 그대로 인용하는 프롬프트 규칙(WEB_SEARCH_SYSTEM_PROMPT
+# 2번, "실제로 인용한 출처만 포함하라") 위반이 실측 확인됐다 — 프롬프트
+# 지시만으로는 완전히 안 막혀 CHAT-14와 동일한 "지시+결정론적 백스톱" 이중
+# 방어 원칙으로 답변이 무정보 판정이면 인용을 전부 제거한다.
+_CITATION_PATTERN = re.compile(r"\[출처(?:\s*\d+)?\](?:\([^)]*\))?")
+
+
+def _strip_citation_when_no_info(answer_text: str) -> str:
+    if not _looks_like_no_info_answer(answer_text):
+        return answer_text
+    stripped = _CITATION_PATTERN.sub("", answer_text)
+    return re.sub(r"[ \t]+", " ", stripped).strip()
 
 
 def _build_search_query_text(
@@ -190,7 +207,7 @@ def _generate_web_search_answer(
 
     system_prompt = assemble_web_search_system_turn()
     user_prompt = assemble_web_search_user_turn(
-        web_results, conversation_history, wrapped_text
+        web_results, conversation_history, wrapped_text, patch_version
     )
 
     started_at = time.monotonic()
@@ -203,6 +220,7 @@ def _generate_web_search_answer(
     # verify_web_citation()이 이 경로의 근거검증을 전담한다.
     processed_answer = strip_internal_doc_marker_leak(raw_answer)
     processed_answer = mask_augment_win_rate_leak(processed_answer)
+    processed_answer = _strip_citation_when_no_info(processed_answer)
     final_answer = verify_web_citation(processed_answer, web_results)
     latency_ms = int((time.monotonic() - started_at) * 1000)
 
