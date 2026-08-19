@@ -67,6 +67,14 @@ _TFT_DOMAIN_PATTERN = re.compile(
 # 패치노트류 배제 단어(바뀌/변경 등)부터 확인한 뒤, 그래도 남는 "패치"만 있는
 # 최소 질문 형태("패치는?", "패치가 뭐야?" 등)를 별도 패턴으로 흡수한다.
 _PATCH_VERSION_SIGNAL_WORDS = ("버전", "몇", "무슨", "어떤")
+# CHAT-28(TEST-11 H16에서 발견, 2026-08-19): "다음 패치에서 어떤 챔피언이
+# 상향될 것 같아?"처럼 "어떤"이 "패치"가 아니라 "챔피언"을 수식하는 미래 예측
+# 질문도, 신호 단어("어떤")가 텍스트 어디에 있는지 위치를 안 가리고 매칭돼
+# 버전 질의로 오분류돼 CHAT-19 조기반환이 엉뚱하게 가로챈다(패치버전 답만
+# 반복하고 실제 질문엔 답 안 함). 상향/하향/미래예측 표현이 있으면 신호
+# 단어가 매칭되더라도 배제하도록 배제 단어 목록에 추가하고, 배제 확인을
+# 신호 단어 확인보다 먼저 하도록 순서를 바꿨다(기존엔 신호 단어가 매칭되면
+# 배제 단어를 아예 확인하지 않고 곧장 True를 반환해 이 조합을 놓쳤다).
 _PATCH_NOTE_EXCLUSION_WORDS = (
     "바뀌",
     "바뀐",
@@ -76,6 +84,8 @@ _PATCH_NOTE_EXCLUSION_WORDS = (
     "너프",
     "버프",
     "추가된",
+    "상향",
+    "하향",
 )
 _BARE_PATCH_QUERY_PATTERN = re.compile(
     r"^(현재|지금|이번)?\s*패치\s*(는|가|이|을|를)?\s*(뭐(야|예요|지|임)?|무엇(인가요|이야)?)?$"
@@ -87,10 +97,10 @@ def is_patch_version_query(normalized_text: str) -> bool:
     즉답하기 위한 감지 함수(chat_stream.py 조기 반환에서 사용)."""
     if "패치" not in normalized_text:
         return False
-    if any(word in normalized_text for word in _PATCH_VERSION_SIGNAL_WORDS):
-        return True
     if any(word in normalized_text for word in _PATCH_NOTE_EXCLUSION_WORDS):
         return False
+    if any(word in normalized_text for word in _PATCH_VERSION_SIGNAL_WORDS):
+        return True
     stripped = normalized_text.rstrip("?!？! ").strip()
     return _BARE_PATCH_QUERY_PATTERN.fullmatch(stripped) is not None
 

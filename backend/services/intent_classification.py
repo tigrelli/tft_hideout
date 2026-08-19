@@ -53,6 +53,27 @@ _KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {
 # 막는다(실제 LLM에 전달되는 질문 원문은 그대로, 매칭용 사본만 가공).
 _GAME_NAME_PATTERN = re.compile(r"전략적\s*팀\s*전투")
 
+# CHAT-28(PM 결정 2026-08-19, TEST-11 A13/B11에서 반복 확인된 재발 패턴):
+# 단일 카테고리 키워드만 있어도 곧장 그 카테고리를 확정해버리면, 실제로는
+# "추천해달라"는 요청이 아니라 게임 메커니즘 자체를 설명해달라는 질문도
+# 같은 카테고리로 오분류된다 — A13("증강은 언제, 몇 개 선택하나요?"→
+# augment_recommendation 오분류로 무관한 특정 증강체 설명이 나옴), B11
+# ("이 챔피언들로 조합을 짜면 어떤 시너지가 나오나요?"→comp_recommendation
+# 오분류로 무관한 기존 조합 통계가 섞임)가 실제 사례. 이런 질문에 흔히
+# 나타나는 표현(몇 개/몇 명을 "언제" 선택하는지 묻는 절차 질문, "~하면 어떤
+# ~가 나오나요" 식의 조건부 결과 질문, "단계별" 효과 차이, "안 어울리는"
+# 궁합 질문)이 있으면 카테고리 키워드가 매칭돼도 곧장 확정하지 않고 2차 LLM
+# 분류로 넘긴다 — CHAT-27이 만든 general_rules 카테고리가 2차 분류 선택지에
+# 있어 이런 메커니즘 질문을 이제 올바르게 처리할 수 있다(이 신호는 "확정
+# 하지 말라"는 방어일 뿐, 최종 분류는 여전히 2차 LLM이 판단한다). TEST-11
+# 157문항 전체를 대조한 결과 이 신호에 걸리는 건 A13/B5/B11/C11 4문항뿐이라
+# (`test_chat28_intent_disambiguation.py` 참고) 정상적인 추천 요청 오탐 위험은
+# 낮다고 판단했다.
+_MECHANISM_QUESTION_SIGNAL = re.compile(
+    r"언제,?\s*몇\s*(개|명)|어떤\s*.{0,10}(나오나요|나올까요)|단계별|단계마다"
+    r"|어울리지\s*않는|안\s*어울리는"
+)
+
 _SYSTEM_PROMPT = (
     "다음은 TFT(전략적 팀 전투) 챗봇에 들어온 질문이다. "
     "아래 6개 카테고리 코드 중 정확히 하나만 다른 말 없이 출력해라.\n"
@@ -74,14 +95,20 @@ _SYSTEM_PROMPT = (
 
 def classify_by_keyword(query: str) -> str | None:
     """1차 분류: 정규식 키워드 매칭. 정확히 한 카테고리에만 매칭되면 그 카테고리를 반환하고,
-    매칭이 없거나 여러 카테고리에 동시에 매칭되면(애매함) None을 반환해 2차 분류로 넘긴다."""
+    매칭이 없거나 여러 카테고리에 동시에 매칭되면(애매함) None을 반환해 2차 분류로 넘긴다.
+    단일 매칭이어도 메커니즘 질문 신호(CHAT-28, _MECHANISM_QUESTION_SIGNAL)가 있으면
+    "추천 요청"이 아닐 가능성이 높아 확정하지 않고 마찬가지로 2차 분류로 넘긴다."""
     keyword_query = _GAME_NAME_PATTERN.sub("", query)
     matched = [
         intent
         for intent, pattern in _KEYWORD_PATTERNS.items()
         if pattern.search(keyword_query)
     ]
-    return matched[0] if len(matched) == 1 else None
+    if len(matched) != 1:
+        return None
+    if _MECHANISM_QUESTION_SIGNAL.search(query):
+        return None
+    return matched[0]
 
 
 def classify_by_llm(query: str, llm_call: Callable[[str, str], str]) -> str:
