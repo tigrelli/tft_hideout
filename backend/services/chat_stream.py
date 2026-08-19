@@ -26,6 +26,7 @@ from services.chat_preprocessing import (
     detect_chatbot_meta_topic,
     detect_multi_topic_signals,
     get_conversation_history,
+    is_non_korean_query,
     is_patch_version_query,
     multi_topic_labels,
     preprocess_input,
@@ -65,6 +66,14 @@ OFF_TOPIC_MESSAGE = (
 )
 NO_CURRENT_PATCH_MESSAGE = (
     "현재 패치 정보가 없어 답변을 생성할 수 없습니다. 잠시 후 다시 시도해주세요."
+)
+# CHAT-33(PM 결정 2026-08-19): 완전한 다국어 지원 대신 정직한 한국어 우선
+# 안내만 제공 — 영어로 작성해 영어 사용자도 이해할 수 있게 하고, 한국어
+# 문장도 함께 붙여 무슨 상황인지 명확히 전달한다.
+NON_KOREAN_LANGUAGE_MESSAGE = (
+    "Sorry, this chatbot mainly supports Korean for now. "
+    "죄송하지만 현재는 한국어를 우선 지원하고 있어요. "
+    "한국어로 다시 질문해 주시면 답변드릴게요."
 )
 FALLBACK_MESSAGE = (
     "죄송합니다, 일시적인 오류로 답변을 생성하지 못했습니다. 잠시 후 다시 시도해주세요."
@@ -407,6 +416,15 @@ def generate_answer_stream(
     chatbot_meta_topic = detect_chatbot_meta_topic(preprocessed.normalized_text)
     if chatbot_meta_topic is not None:
         yield from CHATBOT_META_ANSWERS[chatbot_meta_topic].split(" ")
+        return
+
+    # CHAT-33: 영어 등 비한국어 질의는 is_off_topic() 판정보다 먼저 감지해야
+    # 한다 — 한글 도메인 키워드가 없어 그대로 두면 off_topic 후보로 걸려 2차
+    # LLM 호출까지 낭비되고, 결과적으로 어차피 정형 거절 메시지만 나온다
+    # (TEST-11 H17, "Can you explain the best comp in English?"). 검색·LLM
+    # 호출 없이 한국어 우선 지원 안내로 결정론적으로 즉답한다.
+    if is_non_korean_query(preprocessed.normalized_text):
+        yield from NON_KOREAN_LANGUAGE_MESSAGE.split(" ")
         return
 
     if preprocessed.is_off_topic and offtopic_confirm_fn(preprocessed.normalized_text):

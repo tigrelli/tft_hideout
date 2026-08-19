@@ -15,6 +15,7 @@ from services.chat_preprocessing import (
     confirm_off_topic,
     detect_chatbot_meta_topic,
     get_conversation_history,
+    is_non_korean_query,
     is_off_topic,
     is_patch_version_query,
     normalize_query,
@@ -351,3 +352,27 @@ def test_chatbot_meta_answers_cover_every_detectable_topic() -> None:
 
     topics = {topic for topic, _pattern in _CHATBOT_META_TOPICS}
     assert topics == set(CHATBOT_META_ANSWERS.keys())
+
+
+# CHAT-33(PM 결정 2026-08-19): 영어 등 비한국어 질의 감지(H17)
+def test_is_non_korean_query_flags_english_question() -> None:
+    assert is_non_korean_query("Can you explain the best comp in English?") is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "지금 메타에서 강한 조합 추천해줘",
+        "TFT 조합 추천해줘",  # 영어 약어가 섞여도 한글이 있으면 한국어 질문
+        "이즈리얼 아이템 뭐 껴야해?",
+    ],
+)
+def test_is_non_korean_query_does_not_flag_korean_questions(query: str) -> None:
+    assert is_non_korean_query(query) is False
+
+
+def test_is_non_korean_query_does_not_flag_short_english_acronym() -> None:
+    """영어 단어 1~2개짜리(예: 짧은 약어)까지 비한국어로 판정하면 과잉 차단
+    위험이 커 최소 3단어를 요구한다."""
+    assert is_non_korean_query("TFT?") is False
+    assert is_non_korean_query("TFT set") is False

@@ -295,6 +295,27 @@ def detect_chatbot_meta_topic(normalized_text: str) -> str | None:
     return None
 
 
+# CHAT-33(PM 결정 2026-08-19, TEST-11 H17에서 발견 — 영어로 질문해도 전부
+# 한국어로만 답하고 언어 안내조차 없던 문제): MVP 스코프(개인/지인 10명,
+# 한국어 사용자 중심)상 완전한 다국어 지원 대신 "한국어를 우선 지원한다"는
+# 정직한 안내만 하기로 PM이 결정 — 번역 품질을 담보하기 어려운 전체 영어
+# 응답 경로는 만들지 않는다. 한글(가-힣)이 전혀 없고 영어 단어가 여러 개
+# 있으면 비한국어 질의로 판정한다(짧은 영문 약어 하나만 있는 경우는 정상
+# 한국어 질문에도 흔해 오탐 방지 차 최소 3단어를 요구).
+_HANGUL_PATTERN = re.compile(r"[가-힣]")
+_ENGLISH_WORD_PATTERN = re.compile(r"[A-Za-z]+")
+_MIN_ENGLISH_WORDS_FOR_NON_KOREAN = 3
+
+
+def is_non_korean_query(normalized_text: str) -> bool:
+    if _HANGUL_PATTERN.search(normalized_text):
+        return False
+    return (
+        len(_ENGLISH_WORD_PATTERN.findall(normalized_text))
+        >= _MIN_ENGLISH_WORDS_FOR_NON_KOREAN
+    )
+
+
 @dataclass
 class PreprocessResult:
     normalized_text: str
