@@ -14,6 +14,18 @@ INTENT_GENERAL_STRATEGY = "general_strategy"
 # CHAT-16의 오프토픽 2차 검증과 동일하게, 명확한 신호가 없을 때만 LLM에 맡기는
 # 설계 원칙을 따른다.
 INTENT_GENERAL_GAME_INFO = "general_game_info"
+# CHAT-27(PM 결정 2026-08-19, TEST-11 카테고리 B/C/D/E에서 발견한 "패치와 무관한
+# 고정 게임 규칙" 커버리지 공백 대응): 아이템 조합 방식·성급별 스킬 강화 여부·
+# 랭크 티어 구조 등 세트·패치가 바뀌어도 달라지지 않는 게임 시스템 규칙 질문
+# 전용 의도. 내부 RAG(comps/items/augments)에는 이런 설명 문서 자체가 없어
+# 검색해도 항상 빈 결과이므로, RAG 문서를 새로 쓰는 대신 검색을 생략하고 LLM의
+# 일반 TFT 지식으로 직접 답하게 한다(PM 결정 — "새 의도 신설" 방식 채택,
+# RAG 문서 신설 대비 문서 작성 부담 없이 즉시 넓은 영역을 커버). general_game_info
+# (시즌 일정 등 시의성 있는 정보, 웹검색 근거 필요)와는 근본적으로 다른 대상이라
+# 별도 의도로 분리 — general_rules는 "패치 불변" 전제이므로 검색·웹검색 모두
+# 생략하고, 특정 세트/패치에서만 유효한 내용은 프롬프트 규칙으로 답변을
+# 거부하도록 강제한다(chat_stream.py의 _generate_general_rules_answer 참고).
+INTENT_GENERAL_RULES = "general_rules"
 
 VALID_INTENTS = {
     INTENT_COMP_RECOMMENDATION,
@@ -21,6 +33,7 @@ VALID_INTENTS = {
     INTENT_AUGMENT_RECOMMENDATION,
     INTENT_GENERAL_STRATEGY,
     INTENT_GENERAL_GAME_INFO,
+    INTENT_GENERAL_RULES,
 }
 
 # glossary.md "챗봇 의도 분류 (4종, 고정)" 기준 1차 키워드 규칙 + CHAT-17
@@ -42,13 +55,20 @@ _GAME_NAME_PATTERN = re.compile(r"전략적\s*팀\s*전투")
 
 _SYSTEM_PROMPT = (
     "다음은 TFT(전략적 팀 전투) 챗봇에 들어온 질문이다. "
-    "아래 5개 카테고리 코드 중 정확히 하나만 다른 말 없이 출력해라.\n"
+    "아래 6개 카테고리 코드 중 정확히 하나만 다른 말 없이 출력해라.\n"
     "- comp_recommendation: 조합/덱 추천 질문\n"
     "- item_recommendation: 아이템/빌드 추천 질문\n"
     "- augment_recommendation: 증강체 추천 질문\n"
     "- general_game_info: 시즌 일정/출시 일정/공식 이벤트 등 게임 운영 정보 질문"
     "(내부 데이터베이스로는 답할 수 없는 일반 게임 정보)\n"
-    "- general_strategy: 위 네 가지에 속하지 않는 일반 전략 질문"
+    "- general_rules: 패치·세트가 바뀌어도 달라지지 않는 고정 게임 시스템 규칙"
+    "/메커니즘 질문(예: 아이템은 어떻게 조합하는지, 성급이 오르면 스킬도 강해지는지,"
+    " 랭크 티어는 몇 단계인지, 매칭은 어떤 기준인지). 특정 챔피언/아이템/조합을"
+    " 추천해달라는 질문이 아니라 게임 시스템 자체가 어떻게 동작하는지 묻는"
+    " 질문이면 이 카테고리를 우선 선택하라. 단, '이번 패치에서 뭐가 바뀌었는지'"
+    " '다음 세트가 언제 나오는지'처럼 특정 시점에만 유효한 시의성 있는 내용을"
+    " 묻는 질문은 general_game_info로 분류하라(general_rules가 아니다).\n"
+    "- general_strategy: 위 다섯 가지에 속하지 않는 일반 전략 질문"
 )
 
 

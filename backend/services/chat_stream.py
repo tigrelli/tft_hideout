@@ -34,9 +34,12 @@ from services.hybrid_search import (
 )
 from services.intent_classification import (
     INTENT_GENERAL_GAME_INFO,
+    INTENT_GENERAL_RULES,
     INTENT_ITEM_RECOMMENDATION,
 )
 from services.prompt_assembly import (
+    assemble_general_rules_system_turn,
+    assemble_general_rules_user_turn,
     assemble_system_turn,
     assemble_user_turn,
     assemble_web_search_system_turn,
@@ -221,6 +224,52 @@ def _generate_web_search_answer(
     yield from final_answer.split(" ")
 
 
+def _generate_general_rules_answer(
+    db: Session,
+    *,
+    session_id: str,
+    patch_version: str,
+    normalized_text: str,
+    conversation_history: list[ChatLog],
+    wrapped_text: str,
+    stream_fn: Callable[[str, str], Generator[str, None, None]],
+) -> Generator[str, None, None]:
+    """CHAT-27: general_rules 의도 전용 답변 생성. 패치와 무관한 고정 게임
+    시스템 규칙 질문은 내부 RAG(comps/items/augments)에 설명 문서 자체가
+    없어 검색해도 항상 빈 결과이므로(TEST-11 카테고리 B/C/D/E에서 확인),
+    RAG 문서를 새로 쓰는 대신 검색을 아예 생략하고 LLM의 일반 TFT 지식으로
+    직접 답한다(PM 결정 2026-08-19). general_game_info(웹검색)와 달리 외부
+    API 호출조차 없는 가장 가벼운 경로 — GENERAL_RULES_SYSTEM_PROMPT 3번
+    규칙이 시의성 있는 내용(미래 세트 등)에 대한 추측을 막는 안전장치다.
+    캐시(CHAT-08)·후속질문(CHAT-11)은 general_game_info와 동일하게 이번
+    범위에서 지원하지 않는다(retrieved_doc_ids 기반 구조를 그대로 못 씀)."""
+    system_prompt = assemble_general_rules_system_turn()
+    user_prompt = assemble_general_rules_user_turn(conversation_history, wrapped_text)
+
+    started_at = time.monotonic()
+    raw_answer = "".join(stream_llm_answer(system_prompt, user_prompt, stream_fn))
+    # postprocess_answer()의 verify_grounding()은 retrieved_docs와 대조하는
+    # CHAT-06 8번 규칙 전용 검증인데, 이 경로는 애초에 retrieved_docs가 없어
+    # LLM이 조합/아이템 이름을 언급하기만 해도 항상 근거 없음으로 오탐한다
+    # (general_game_info와 동일한 이유로 재사용하지 않음, 위 주석 참고).
+    processed_answer = strip_internal_doc_marker_leak(raw_answer)
+    final_answer = mask_augment_win_rate_leak(processed_answer)
+    latency_ms = int((time.monotonic() - started_at) * 1000)
+
+    record_chat_log(
+        db,
+        session_id=session_id,
+        patch_version=patch_version,
+        user_query=normalized_text,
+        intent=INTENT_GENERAL_RULES,
+        retrieved_docs=[],
+        answer=final_answer,
+        latency_ms=latency_ms,
+    )
+
+    yield from final_answer.split(" ")
+
+
 def generate_answer_stream(
     db: Session,
     session_id: str,
@@ -350,6 +399,18 @@ def generate_answer_stream(
             conversation_history=conversation_history,
             wrapped_text=preprocessed.wrapped_text,
             web_search_fn=web_search_fn,
+            stream_fn=stream_fn,
+        )
+        return
+
+    if intent == INTENT_GENERAL_RULES:
+        yield from _generate_general_rules_answer(
+            db,
+            session_id=session_id,
+            patch_version=patch_version,
+            normalized_text=preprocessed.normalized_text,
+            conversation_history=conversation_history,
+            wrapped_text=preprocessed.wrapped_text,
             stream_fn=stream_fn,
         )
         return
