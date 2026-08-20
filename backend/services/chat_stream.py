@@ -8,6 +8,7 @@ import re
 import sys
 import time
 from collections.abc import Callable, Generator
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -223,8 +224,9 @@ def _generate_web_search_answer(
         return
 
     system_prompt = assemble_web_search_system_turn()
+    current_date = datetime.now(UTC).date().isoformat()
     user_prompt = assemble_web_search_user_turn(
-        web_results, conversation_history, wrapped_text, patch_version
+        web_results, conversation_history, wrapped_text, patch_version, current_date
     )
 
     started_at = time.monotonic()

@@ -77,6 +77,32 @@ def test_assemble_web_search_user_turn_omits_known_fact_when_patch_version_none(
     assert "[알려진 사실]" not in turn
 
 
+# ---- 스팟픽스: "시즌" 질문에 낡은 커뮤니티 날짜를 최신으로 착각하는 문제 -------------
+# (PM 실사용 제보 — "현재 시즌은 언제까지?"에 2024년 날짜의 "시즌 11" 커뮤니티
+# 글을 근거로 답변. patch_version 대조만으로는 "세트"가 아닌 "시즌" 개념·날짜
+# 자체의 낡음을 못 걸러내 오늘 날짜를 [알려진 사실]에 추가로 명시한다.)
+
+
+def test_web_search_system_prompt_warns_season_is_not_an_official_tft_term() -> None:
+    assert "시즌" in WEB_SEARCH_SYSTEM_PROMPT
+    assert "오늘" in WEB_SEARCH_SYSTEM_PROMPT
+
+
+def test_assemble_web_search_user_turn_includes_current_date_when_given() -> None:
+    turn = assemble_web_search_user_turn(
+        [], [], "질문", patch_version="17.9", current_date="2026-08-20"
+    )
+    assert "[알려진 사실]" in turn
+    assert "2026-08-20" in turn
+
+
+def test_assemble_web_search_user_turn_omits_current_date_when_none() -> None:
+    """current_date 기본값(None)이면 패치버전만 있던 기존 동작을 유지한다."""
+    turn = assemble_web_search_user_turn([], [], "질문", patch_version="17.9")
+    assert "[알려진 사실]" in turn
+    assert "오늘 날짜는" not in turn
+
+
 # ---- verify_web_citation: URL 없는 "[출처]" 라벨(E4/E15) ---------------------------
 
 
@@ -219,3 +245,31 @@ def test_general_game_info_prompt_includes_known_patch_version(
     )
     assert "[알려진 사실]" in captured["user_message"]
     assert "17.9" in captured["user_message"]
+
+
+def test_general_game_info_prompt_includes_todays_date(
+    seeded_patch_session: Session,
+) -> None:
+    """스팟픽스 배선 확인 — generate_answer_stream이 실제 오늘 날짜(UTC)를
+    [알려진 사실]에 전달하는지."""
+    captured: dict[str, str] = {}
+
+    def capturing_stream_fn(system_prompt: str, user_message: str):
+        captured["user_message"] = user_message
+        yield "답변입니다."
+
+    list(
+        generate_answer_stream(
+            seeded_patch_session,
+            "44444444-4444-4444-4444-444444444444",
+            "현재 시즌은 언제까지야?",
+            embed_fn=_fail_if_called("embed_fn"),
+            offtopic_confirm_fn=lambda text: False,
+            classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
+            search_fn=_fail_if_called("search_fn"),
+            web_search_fn=lambda q: [],
+            stream_fn=capturing_stream_fn,
+        )
+    )
+    today = datetime.now(UTC).date().isoformat()
+    assert today in captured["user_message"]
