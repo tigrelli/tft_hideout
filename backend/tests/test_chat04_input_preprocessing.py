@@ -149,6 +149,20 @@ def test_is_off_topic_does_not_flag_economy_and_lowroll_strategy_terms() -> None
     assert is_off_topic("스노우볼링과 그리핑(선반 강화)의 차이는 무엇인가요?") is False
 
 
+# PM 실사용 제보(2026-08-20): "배치고사는 몇 판을 해야해요?"(랭크 초기 배치
+# 게임 수 질문)가 1차 키워드 목록에 없어 2차 LLM으로 넘어갔고, 그 2차 LLM도
+# 잡담으로 오판해 범위 밖으로 거절되던 문제 — 랭크 시스템 관련 용어를 추가.
+def test_is_off_topic_does_not_flag_ranked_placement_terms() -> None:
+    assert is_off_topic("배치고사는 몇 판을 해야해요?") is False
+    assert is_off_topic("랭크 티어는 어떻게 나뉘나요?") is False
+
+
+# PM 실사용 제보(2026-08-20, 같은 세션): "게임 시작 시 기본 체력은?"도 같은
+# 유형(패치 불변 기본 게임 수치 질문)으로 범위 밖 거절됨 — 체력 키워드를 추가.
+def test_is_off_topic_does_not_flag_starting_health_question() -> None:
+    assert is_off_topic("게임 시작 시 기본 체력은?") is False
+
+
 def test_preprocess_input_off_topic_flag_is_set_on_result() -> None:
     result = preprocess_input("오늘 점심 뭐 먹지")
     assert result.is_off_topic is True

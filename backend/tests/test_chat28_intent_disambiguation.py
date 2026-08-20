@@ -29,6 +29,7 @@ from services.intent_classification import (
         "시너지 단계별(2/4/6명 등) 효과 차이를 알려주세요.",  # B5(원래도 키워드 미매칭)
         "이 챔피언들로 조합을 짜면 어떤 시너지가 나오나요?",  # B11
         "이 챔피언에게 어울리지 않는 아이템 조합이 있나요?",  # C11(원래도 이중매칭)
+        "한 챔피언에게 아이템을 최대 몇 개까지 줄 수 있나요?",  # PM 제보 2026-08-20
     ],
 )
 def test_classify_by_keyword_defers_mechanism_questions_to_llm(query: str) -> None:
@@ -46,6 +47,12 @@ def test_classify_by_llm_routes_mechanism_question_to_general_rules() -> None:
     assert (
         classify_by_llm(
             "이 챔피언들로 조합을 짜면 어떤 시너지가 나오나요?", mock_llm_call
+        )
+        == INTENT_GENERAL_RULES
+    )
+    assert (
+        classify_by_llm(
+            "한 챔피언에게 아이템을 최대 몇 개까지 줄 수 있나요?", mock_llm_call
         )
         == INTENT_GENERAL_RULES
     )

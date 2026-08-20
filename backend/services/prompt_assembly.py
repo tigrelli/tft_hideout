@@ -139,10 +139,15 @@ WEB_SEARCH_SYSTEM_PROMPT = """너는 TFT(전략적 팀 전투) 메타 정보 전
    보호 장치'를 물었는데 검색 결과에 '순방'(등수 확정 시 LP 상승 보장) 개념만
    있다면, 서로 다른 개념이므로 순방을 강등 방지 장치라고 답하지 마라). 개념이
    다르면 1번 규칙대로 '해당 정보는 확인되지 않았습니다'라고 답하라.
-9. [알려진 사실] 섹션에 현재 서비스에 반영된 기준 패치가 명시돼 있다. 검색
-   결과에 나온 세트 번호·패치 번호가 이 사실과 어긋나면(더 낮은 세트 번호를
-   말하거나, 오래된 패치 번호가 출처 URL·본문에 있는 경우 등) 그 정보가
-   오래됐을 수 있음을 밝히고, 세트·패치 번호는 [알려진 사실] 쪽을 신뢰하라.
+9. [알려진 사실] 섹션에 현재 서비스에 반영된 기준 패치와 오늘 날짜가 명시돼
+   있다. 검색 결과에 나온 세트 번호·패치 번호·날짜가 이 사실과 어긋나면
+   (더 낮은 세트 번호를 말하거나, 오래된 패치 번호나 오늘보다 훨씬 과거의
+   날짜가 출처 URL·본문에 있는 경우 등) 그 정보가 오래됐을 수 있음을 밝히고,
+   세트·패치 번호·날짜는 [알려진 사실] 쪽을 신뢰하라. TFT는 '세트(Set)'
+   단위로 콘텐츠가 갱신될 뿐 공식적으로 번호가 매겨진 '시즌'은 없다 —
+   검색 결과가 '시즌 11'처럼 TFT 공식 용어가 아닌 개념으로 특정 시점을
+   단정해도 그대로 따라 말하지 말고, 세트 기준으로 바꿔 답하거나 '해당
+   정보는 확인되지 않았습니다'라고 답하라.
 10. 이름·목록을 여러 개 나열해야 하는 질문(예: 챔피언 목록)이라도 1번 규칙은
     예외 없이 적용된다 — 검색 결과에 실제로 있는 항목만 나열하고, 그럴듯해
     보이는 이름을 지어내 목록을 채우지 마라. 검색 결과에 일부 항목만 있으면
@@ -160,13 +165,20 @@ WEB_SEARCH_FEW_SHOT_EXAMPLE = """[예시]
 [출처](https://teamfighttactics.leagueoflegends.com/en-us/news/game-updates/enchanted-wilds-overview)"""
 
 
-def _format_known_fact(patch_version: str) -> str:
+def _format_known_fact(patch_version: str, current_date: str | None = None) -> str:
     """CHAT-29: 웹 검색 결과가 오래된 세트/패치 번호를 언급해도(TEST-11 B1·E5·E9·E15
     실측 확인) LLM이 이를 최신 사실로 착각하지 않도록, 내부적으로 이미 알고 있는
-    patch_version을 [알려진 사실]로 명시해 프롬프트 규칙 9번의 대조 기준으로 쓴다."""
-    return (
+    patch_version을 [알려진 사실]로 명시해 프롬프트 규칙 9번의 대조 기준으로 쓴다.
+    current_date는 스팟픽스로 추가됨 — "현재 시즌은 언제까지?" 질문에 검색된
+    2024년 커뮤니티 글의 날짜를 최신으로 착각해 답한 사례(PM 실사용 제보)가
+    있어, 오늘 날짜도 함께 대조 기준으로 준다(패치 번호 대조만으로는 "세트"가
+    아닌 "시즌"처럼 패치 체계 밖의 날짜 주장을 걸러내지 못함)."""
+    fact = (
         f"[알려진 사실]\n현재 서비스에 반영된 기준 패치는 '{patch_version}' 패치입니다."
     )
+    if current_date is not None:
+        fact += f"\n오늘 날짜는 {current_date}입니다."
+    return fact
 
 
 # CHAT-27: general_rules 전용 시스템 프롬프트. 검색된 문서도 웹 검색 결과도
@@ -346,16 +358,19 @@ def assemble_web_search_user_turn(
     conversation_history: list[ChatLog],
     wrapped_user_message: str,
     patch_version: str | None = None,
+    current_date: str | None = None,
 ) -> str:
     """assemble_user_turn()의 general_game_info 전용 대응 함수 — [검색된 문서]
     대신 웹 검색 결과를 근거 섹션으로 쓰되, patch_version은 CHAT-29부터
     [알려진 사실] 섹션으로 함께 전달한다(웹 검색 결과의 세트/패치 번호가
     오래됐을 때 대조 기준으로 쓰기 위함, WEB_SEARCH_SYSTEM_PROMPT 9번 규칙
+    참고). current_date는 스팟픽스로 추가(PM 실사용 제보 — "시즌" 관련 질문에
+    검색된 2024년 커뮤니티 글을 최신으로 착각한 답변 발견, `_format_known_fact`
     참고). patch_version이 None이면(기존 호출부·테스트 호환) 이 섹션을
     생략한다."""
     sections = []
     if patch_version is not None:
-        sections.append(_format_known_fact(patch_version))
+        sections.append(_format_known_fact(patch_version, current_date))
     sections.append(_format_web_search_results(web_results))
     history_section = _format_conversation_history(conversation_history)
     if history_section is not None:
