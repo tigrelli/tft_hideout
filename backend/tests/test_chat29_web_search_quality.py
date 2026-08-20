@@ -103,6 +103,28 @@ def test_assemble_web_search_user_turn_omits_current_date_when_none() -> None:
     assert "오늘 날짜는" not in turn
 
 
+# ---- 스팟픽스: "현재 진행 중"이면서 이미 지난 종료일을 단정하는 모순 방지 ----------
+# (PM 실사용 제보 — "현재 시즌 종료는?"에 오늘보다 3주 전인 날짜를 "현재
+# 진행 중인 시즌이 그 날짜에 종료된다"고 자기모순적으로 답변. 오늘 날짜를
+# [알려진 사실]에 추가한 것만으로는 이 논리적 모순까지는 못 걸러 규칙을
+# 명시적으로 추가한다.)
+
+
+def test_web_search_system_prompt_forbids_contradicting_past_end_date_as_ongoing() -> (
+    None
+):
+    assert "모순" in WEB_SEARCH_SYSTEM_PROMPT
+    assert "현재 진행 중" in WEB_SEARCH_SYSTEM_PROMPT
+
+
+def test_web_search_few_shot_example_includes_current_date_fact() -> None:
+    """few-shot 예시의 [알려진 사실]도 실제 assemble_web_search_user_turn()이
+    만드는 형식(패치버전+오늘 날짜)과 일치해야 모델이 형식을 혼동하지 않는다."""
+    from services.prompt_assembly import WEB_SEARCH_FEW_SHOT_EXAMPLE
+
+    assert "오늘 날짜는" in WEB_SEARCH_FEW_SHOT_EXAMPLE
+
+
 # ---- verify_web_citation: URL 없는 "[출처]" 라벨(E4/E15) ---------------------------
 
 
