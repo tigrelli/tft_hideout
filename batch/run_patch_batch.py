@@ -39,6 +39,7 @@ from normalize import (
     upsert_comps,
     upsert_items,
     upsert_traits,
+    validate_champion_collection,
 )
 from opgg_client import OpggMcpClient
 from patch_detection import run_patch_detection
@@ -66,6 +67,7 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
             champions = champion_rows(
                 state["cdragon_ko"], state["cdragon_en"], set_number
             )
+            validate_champion_collection(champions, set_number)
             state["item_builds_by_champion"] = {
                 c["riot_champion_id"]: opgg.get_champion_item_build(
                     c["riot_champion_id"]

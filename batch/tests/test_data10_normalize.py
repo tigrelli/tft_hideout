@@ -40,6 +40,7 @@ from normalize import (
     upsert_comps,
     upsert_items,
     upsert_traits,
+    validate_champion_collection,
 )
 
 # ---- 합성 fixture(DATA-05/06 스파이크 구조 기반, 값은 전부 가짜) ----------------
@@ -62,9 +63,26 @@ CDRAGON_KO = {
                     "name": "가짜 아칼리",
                     "cost": 4,
                     "squareIcon": "ASSETS/Characters/TFT17_FakeAkali/Icon.tex",
+                    "traits": ["가짜 특성"],
                 },
-                {"apiName": "TFT17_FakeOnlyKo", "name": "한국어만", "cost": 1},
-                {"apiName": "TFT17_FakeNoIcon", "name": "아이콘 없음", "cost": 2},
+                {
+                    "apiName": "TFT17_FakeOnlyKo",
+                    "name": "한국어만",
+                    "cost": 1,
+                    "traits": ["가짜 특성"],
+                },
+                {
+                    "apiName": "TFT17_FakeNoIcon",
+                    "name": "아이콘 없음",
+                    "cost": 2,
+                    "traits": ["가짜 특성"],
+                },
+                {
+                    "apiName": "TFT_FakeKrug",
+                    "name": "가짜 돌거북",
+                    "cost": 0,
+                    "traits": [],
+                },
             ],
             "traits": [
                 {
@@ -84,6 +102,7 @@ CDRAGON_EN = {
             "champions": [
                 {"apiName": "TFT17_FakeAkali", "name": "FakeAkali", "cost": 4},
                 {"apiName": "TFT17_FakeNoIcon", "name": "FakeNoIcon", "cost": 2},
+                {"apiName": "TFT_FakeKrug", "name": "FakeKrug", "cost": 0},
             ],
             "traits": [
                 {"apiName": "TFT17_FakeTrait", "name": "FakeTrait", "effects": []}
@@ -206,6 +225,31 @@ def test_cdragon_asset_url_lowercases_path_and_converts_extension() -> None:
 
 def test_champion_rows_unknown_set_returns_empty() -> None:
     assert champion_rows(CDRAGON_KO, CDRAGON_EN, set_number=18) == []
+
+
+def test_champion_rows_skips_entities_with_no_traits() -> None:
+    # 2026-08-26 사고 회귀 테스트: 정글 몬스터·모루 같은 비챔피언 엔티티
+    # (traits: [])는 apiName이 있어도 챔피언 목록에서 제외돼야 한다.
+    rows = champion_rows(CDRAGON_KO, CDRAGON_EN, set_number=17)
+
+    assert not any(r["riot_champion_id"] == "TFT_FakeKrug" for r in rows)
+
+
+def test_validate_champion_collection_passes_with_enough_champions() -> None:
+    champions = [{"riot_champion_id": f"TFT17_Fake{i}"} for i in range(40)]
+    validate_champion_collection(champions, set_number=17)  # 예외 없어야 함
+
+
+def test_validate_champion_collection_raises_when_too_few() -> None:
+    # 2026-08-26 패치 18.1 사고 재현: Community Dragon 세트 데이터가 프리뷰
+    # 상태(챔피언 2명)일 때 그대로 승격되지 않고 예외로 배치가 중단돼야 한다.
+    champions = [
+        {"riot_champion_id": "DA_18_Alune"},
+        {"riot_champion_id": "DA_18_Kobuko"},
+    ]
+
+    with pytest.raises(ValueError, match="비정상적으로 적습니다"):
+        validate_champion_collection(champions, set_number=18)
 
 
 def test_trait_rows_builds_tier_thresholds_from_effects() -> None:

@@ -187,6 +187,14 @@ def format_item_stats(stats: dict[str, Any] | None) -> str:
 # ---- 순수 변환 함수(DB 미접근, 유닛 테스트 대상) ------------------------------
 
 
+# 2026-08-26 발견(패치 18.1 자동 감지 사고): Community Dragon setData[].champions
+# 배열에는 실제 플레이 가능한 챔피언 외에 정글 몬스터·아이템 모루·훈련 봇 같은
+# 비챔피언 엔티티도 섞여 있다(예: TFT_Krug, TFT_BlueGolem, TFT_ArmoryKeyCompleted).
+# 이전까지는 실챔피언이 항상 함께 들어있어 화면에 안 보였을 뿐 걸러낸 적이 없었다.
+# Set 17·Set 18 양쪽 실데이터로 확인한 결과 비챔피언 엔티티는 예외 없이
+# `traits: []`(빈 리스트)이고 실챔피언은 항상 1개 이상의 특성을 갖는다 — apiName
+# 접두어(`TFT17_`/`TFT18_`)는 Set 18에서 `DA_18_`로 바뀌어 신뢰할 수 없음이
+# 확인됐으므로(docs/spike/tft-ddragon.md) traits 유무로 판별한다.
 def champion_rows(
     cdragon_ko: dict[str, Any], cdragon_en: dict[str, Any], set_number: int
 ) -> list[dict[str, Any]]:
@@ -199,6 +207,8 @@ def champion_rows(
     en_by_id = {c["apiName"]: c for c in entry_en.get("champions", [])}
     rows = []
     for c_ko in entry_ko.get("champions", []):
+        if not c_ko.get("traits"):
+            continue
         api_name = c_ko["apiName"]
         c_en = en_by_id.get(api_name)
         if c_en is None:
@@ -216,6 +226,32 @@ def champion_rows(
             }
         )
     return rows
+
+
+# 2026-08-26 발견(패치 18.1 자동 감지 사고): Set 18 런칭 감지 당시 Community
+# Dragon의 setData[18] 항목이 아직 실챔피언 2명(traits 있는 항목 기준)만 채워진
+# 미리보기 상태였는데도, run_batch_with_atomic_promotion(DATA-13)은 "예외 없이
+# 끝났는가"만으로 성공 여부를 판단해 이 상태를 그대로 patches.is_current로
+# 승격시켰다 — comp_champions가 전부 0건이 돼 조합 상세 화면이 통째로 비었다.
+# 기존 패치 대비 챔피언 수가 비정상적으로 적으면 여기서 예외를 던져 배치를
+# 실패 처리(is_current 승격 차단)한다. 역대 TFT 세트는 최소 40명 이상이었으므로
+# 여유를 둔 30명을 하한선으로 삼는다(신규 세트 축소 개편 가능성 감안).
+MIN_REAL_CHAMPIONS_PER_SET = 30
+
+
+def validate_champion_collection(
+    champions: list[dict[str, Any]], set_number: int
+) -> None:
+    """챔피언 수집 결과가 비정상적으로 적으면 예외를 던져 배치를 중단시킨다
+    (patch_transition.run_batch_with_atomic_promotion이 잡아 is_current 승격을
+    막는다)."""
+    if len(champions) < MIN_REAL_CHAMPIONS_PER_SET:
+        raise ValueError(
+            f"Set {set_number} 챔피언 수집 결과가 비정상적으로 적습니다"
+            f"({len(champions)}명, 최소 {MIN_REAL_CHAMPIONS_PER_SET}명 기대) — "
+            "Community Dragon의 해당 세트 데이터가 아직 미완성(프리뷰)일 수 있으니 "
+            "patch_version 승격을 중단합니다."
+        )
 
 
 def trait_rows(

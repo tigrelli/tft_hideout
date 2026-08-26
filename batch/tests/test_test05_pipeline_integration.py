@@ -65,6 +65,7 @@ CDRAGON_KO = {
                     "name": "가짜 아칼리",
                     "cost": 4,
                     "squareIcon": "ASSETS/Characters/TFT17_FakeAkali/Icon.tex",
+                    "traits": ["가짜 특성"],
                 }
             ],
             "traits": [
