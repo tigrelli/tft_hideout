@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -221,6 +222,10 @@ class CompTrait(Base):
 
 class ChampionItemBuild(Base):
     __tablename__ = "champion_item_builds"
+    # DATA-25: 배치 교체 DELETE·카탈로그 조회의 전체 순차 스캔 방지.
+    __table_args__ = (
+        Index("ix_champion_item_builds_patch_champion", "patch_version", "champion_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     champion_id: Mapped[int] = mapped_column(ForeignKey("champions.id"), nullable=False)

@@ -30,7 +30,8 @@ from normalize import (
     ensure_patch,
     item_rows,
     mark_stale_comps_inactive,
-    replace_champion_item_builds,
+    prune_old_item_builds,
+    replace_patch_item_builds,
     trait_rows,
     upsert_augments,
     upsert_champions,
@@ -92,17 +93,19 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
             patch_version,
             augment_rows(state["augments_ko"], state["augments_en"]),
         )
-        for riot_champion_id, build_response in state[
-            "item_builds_by_champion"
-        ].items():
-            db_champion_id = champion_ids.get(riot_champion_id)
-            if db_champion_id is not None:
-                replace_champion_item_builds(
-                    session,
-                    db_champion_id,
-                    patch_version,
-                    champion_item_build_rows(build_response),
-                )
+        # DATA-25: 챔피언별 DELETE(실행당 약 65회 전체 스캔) 대신 패치 단위로
+        # 한 번에 교체한다.
+        replace_patch_item_builds(
+            session,
+            patch_version,
+            {
+                champion_ids[riot_champion_id]: champion_item_build_rows(response)
+                for riot_champion_id, response in state[
+                    "item_builds_by_champion"
+                ].items()
+                if riot_champion_id in champion_ids
+            },
+        )
         name_maps = build_name_maps(state["cdragon_ko"], set_number)
         comp_ids = upsert_comps(
             session, patch_version, comp_rows(state["meta_decks"], name_maps.champions)
@@ -183,6 +186,17 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 - 배치 크론을 죽이지 않고 로그로만 알림
             session.rollback()
             print(f"comps 주기 재수집(DATA-18) 실패: {exc}")
+
+    # DATA-25: 지난 패치 빌드 정리. 승격 성공 때만 돌리면 다음 패치 전까지 쌓인
+    # 행이 그대로 남아 매일 실행한다 — 현재 패치와 최근 2개 패치는 항상 보존되고,
+    # 지울 게 없는 날은 인덱스 조회만으로 끝난다. 실패해도 크론은 죽이지 않는다.
+    try:
+        pruned = prune_old_item_builds(session)
+        session.commit()
+        print(f"지난 패치 빌드 정리(DATA-25): champion_item_builds {pruned}행 삭제")
+    except Exception as exc:  # noqa: BLE001 - 배치 크론을 죽이지 않고 로그로만 알림
+        session.rollback()
+        print(f"지난 패치 빌드 정리(DATA-25) 실패: {exc}")
 
     return 0
 
