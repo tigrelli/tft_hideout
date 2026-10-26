@@ -81,10 +81,10 @@
 | 프론트엔드 | Next.js(React), Tailwind CSS, Cloudflare Pages 배포 |
 | 백엔드 | FastAPI(Python), Render 무료 컨테이너, 단일 앱 내 4개 라우터(catalog/chat/analysis/kpi) |
 | 구조화 DB | PostgreSQL (Supabase 무료) |
-| 벡터 DB | pgvector (Supabase 내장, HNSW 인덱스) |
+| 챗봇 검색 | PostgreSQL `pg_trgm` 텍스트 유사도 (v1.15, CHAT-36 — 이전 pgvector+HNSW 벡터 검색, 컬럼·인덱스는 이력 보존용으로만 남음) |
 | 캐시 | PostgreSQL 테이블 (`chat_answer_cache`, `puuid_cache`) — 별도 캐시 인프라 없이 구조화 DB 재사용 (v1.7, 이전 Redis/Upstash) |
 | LLM 추론 | Groq API 무료 티어 · openai/gpt-oss-120b(2026-08-16부터, 이전 Llama 3.3 70B Versatile는 Groq가 폐기) |
-| 임베딩 | BGE-M3 (Hugging Face Inference API) |
+| 임베딩 | 없음 (v1.15, CHAT-36 — 이전 BGE-M3/Hugging Face Inference API는 HF가 2026-10-07 무료 크레딧을 폐지해 제거) |
 | RAG 프레임워크 | LangChain (Python) |
 | 웹 검색 API | Tavily 무료 티어(월 1,000크레딧, 매월 갱신) — 내부 RAG(comps/item_builds/augments/comp_champions 등)로 답할 수 없는 "일반 게임 정보" 질문(시즌 일정 등) 전용 5번째 챗봇 의도(`general_game_info`)의 근거 소스, CHAT-16~18에서 신설(v1.11) |
 | 배치 스케줄러 | GitHub Actions (패치 감지 폴링 + 배치 워커) |
@@ -126,7 +126,7 @@
 ```
 /frontend   - Next.js 앱 (FE-* TASK)
 /backend    - FastAPI 앱 (API-*, CHAT-*, PGA-* TASK)
-/batch      - GitHub Actions 배치 워커, 데이터 수집/정규화/임베딩 (DATA-* TASK)
+/batch      - GitHub Actions 배치 워커, 데이터 수집/정규화/검색 문서 적재 (DATA-* TASK)
 /docs       - 기획 문서, WBS, 진행현황, 스파이크 리포트
   /docs/reference  - 경량 참조본(glossary/schema/api-spec/policies/design-tokens.md, SET-15)
   /docs/source     - 근거 문서 원본의 최신 확정본만(docx 6종), 항상 이 폴더 것을 기준으로 삼는다
@@ -157,7 +157,7 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 - **비로그인 세션**: 회원가입/로그인 시스템을 만들지 않는다. `session_id`(UUID)는 대화 묶음 키일 뿐 회원 식별자가 아니다.
 - **RAG 근거 원칙**: 챗봇 답변은 검색된 문서에 없는 내용을 추측하지 않고, 패치 버전과 근거를 항상 명시한다.
 - **인증 없음**: 모든 API는 인증을 두지 않고 IP 기준 rate limiting만 적용한다(catalog 분당 60, chat 분당 10).
-- **무료 인프라 한도**: Render 콜드스타트, Groq/HF 무료 티어 요청 제한을 항상 고려해 재시도·폴백을 구현한다.
+- **무료 인프라 한도**: Render 콜드스타트, Groq 무료 티어 요청 제한을 항상 고려해 재시도·폴백을 구현한다.
 
 ---
 
@@ -202,7 +202,7 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 - **원칙**: DATA-*/API-*/CHAT-*/PGA-*/FE-*/KPI-* 코딩 TASK는 각각 WBS `테스트 요구사항` 컬럼에 명시된 자동화 테스트를 작성하고 통과해야 4번(자체 검증)을 만족한 것으로 간주한다. 별도의 `TEST-*` 그룹(TEST-00~10)은 개별 TASK 단위 테스트를 대체하는 것이 아니라, 여러 TASK가 끝난 뒤 통합·회귀·정책 준수를 교차 검증하는 후속 단계다.
 - **프레임워크**: 백엔드/배치 = `pytest`(+ FastAPI `TestClient`) · 프론트엔드 컴포넌트 = `Vitest` + `React Testing Library` · 프론트엔드 E2E = `Playwright`(TEST-08이 전체 플로우 통합) · RAG 품질 = `RAGAS`(KPI-02).
 - **사전 시나리오 정의(TEST-00)**: 정책 준수·크리티컬 계산 로직이 걸린 TASK(`API-05`, `CHAT-04`, `CHAT-06`, `PGA-04`, `PGA-05`, `PGA-06`, `PGA-07`, `PGA-09`, `DATA-13`)는 구현에 착수하기 전에 `/docs/test-scenarios.md`에 입력값·기대출력·경계값을 표로 정리하고 PM 합의를 받는다(TEST-00, 진행현황.md "테스트 시나리오 사전 정의 현황" 표 참고). 이 문서가 곧 해당 TASK의 테스트 케이스 초안이 된다.
-- **외부 API 목(mock) 정책**: 자동화 테스트에서 op.gg MCP·Riot API·Groq·Hugging Face를 실제로 호출하지 않는다. DATA-05~07 스파이크 결과를 기반으로 한 고정 fixture(JSON)를 사용해 Personal Key 레이트리밋·무료 티어 한도를 테스트에서 소모하지 않는다. 실제 연동 확인은 각 SET-* 스모크 테스트(1회성)로 한정한다.
+- **외부 API 목(mock) 정책**: 자동화 테스트에서 op.gg MCP·Riot API·Groq·Tavily를 실제로 호출하지 않는다. DATA-05~07 스파이크 결과를 기반으로 한 고정 fixture(JSON)를 사용해 Personal Key 레이트리밋·무료 티어 한도를 테스트에서 소모하지 않는다. 실제 연동 확인은 각 SET-* 스모크 테스트(1회성)로 한정한다.
 - **fixture는 반드시 합성(가짜) 데이터로 구성**: op.gg/Riot API 스파이크(DATA-05~07)로 실제 응답 스키마(필드 구조)는 확인하되, pytest fixture에 박아넣는 값 자체는 실제 Riot ID·PUUID·닉네임·매치 데이터를 그대로 복사하지 않고 합성 값으로 치환한다(스키마는 실제, 값은 가짜). 이는 저장소를 향후 public으로 전환할 가능성(REL-05 참고)을 염두에 둔 조치로, 나중에 git 히스토리를 정리할 필요가 없게 만든다.
 - **CI 게이트(SET-14)**: PR 생성/push 시 GitHub Actions가 backend pytest와 frontend Vitest를 자동 실행하고, 실패 시 브랜치 보호 규칙으로 머지를 차단한다. 로컬에서 테스트를 건너뛰고 커밋하더라도 PR 단계에서 최종적으로 걸러진다.
 - **커밋 컨벤션**: Conventional Commits 접두어(`feat`/`fix`/`test`/`chore`/`docs`/`refactor`) + WBS 코드. 예: `test(PGA-04): 조합 이탈도 계산 단위 테스트 추가`, `fix(CHAT-06): Legend 승률 후처리 필터 누락 수정`.
@@ -228,3 +228,4 @@ FE-* TASK(프론트엔드 코딩)를 진행할 때는 임의로 스타일을 새
 | v1.12 | 2026-08-12 | PM 요청 반영 — v1.11이 갱신한 `/docs/reference/*.md`는 경량 요약본일 뿐이라, 근거 문서 원본(확정본)도 함께 버전을 올려달라는 요청에 따라 `TFT_sLLM_개발설계서_v1.8.docx` 작성: 표지 버전·작성일, 3장 개발 스택 확정 표(웹 검색 API 행), 3장 아키텍처 원칙 문단("외부 API를 질문마다 직접 호출하지 않는다"에 general_game_info 예외 명시), 외부 데이터 소스 목록, 4.4절 의도 분류·검색 파이프라인 설명(5개 카테고리, 웹검색 전용 경로 신설 bullet), 의도별 검색대상 표(일반 게임 정보 행), 4.4.2 범위 밖 질문 정책(2차 LLM 검증), 4.4.3 근거 검증(URL 기반 사후검증), 5.1 comps 테이블 컬럼(is_active, DATA-17 도입분 최초 문서화), 외부 서비스 무료 티어 한도 표(Tavily 행)까지 갱신(python-docx로 기존 서식 유지한 채 편집, 새 텍스트만 교체·삽입 — 그림 개체 등은 변경 없음). 구버전 v1.7은 `/docs/archive/`로 이동, `/docs/source/`엔 v1.8만 유지. 1장 문서 목록의 파일명 표기를 v1.8로 갱신. **참고**: 이번 작업 중 1장의 `TFT_sLLM_IA_v1.1.docx` 표기가 실제 `/docs/source/` 파일(v1.2, v1.7 changelog가 이미 "IA v1.2로 교체"라고 기록한 바로 그 파일)과 어긋나 있는 것을 발견했으나 이번 세션 범위(웹검색 기능) 밖이라 손대지 않음 — 별도로 확인 필요 |
 | v1.13 | 2026-08-12 | PM 요청 반영 — v1.12에서 발견만 하고 넘어갔던 1장 `TFT_sLLM_IA_v1.1.docx` 표기 오류를 마저 수정(실제 파일·파일시스템은 이미 v1.2가 맞았고 문서 표기만 안 고쳐져 있었음, `/docs/archive/`에도 v1.0·v1.1 둘 다 정상 보관 중이라 파일 이동은 불필요 — CLAUDE.md 1장 텍스트 한 줄만 정정) |
 | v1.14 | 2026-08-16 | PM 긴급 요청 반영 — Groq가 2026-06-17 공지·2026-08-16(당일) 폐기한 `llama-3.3-70b-versatile`을 권장 대체 모델 `openai/gpt-oss-120b`(정식 등급, 무료 티어 TPD 200,000으로 기존 100,000 대비 2배, 프리뷰 등급 `qwen/qwen3.6-27b`는 비채택)로 교체(CHAT-23). 3장 기술스택 표의 "LLM 추론" 행 갱신. 코드 변경은 `backend/services/groq_client.py`의 `GROQ_MODEL` 상수 한 곳뿐(모든 Groq 호출 경로가 공유). 상세: `docs/verification/CHAT-23-작업결과.md` |
+| v1.15 | 2026-10-18 | PM 결정 반영(운영 장애 대응) — Hugging Face가 2026-10-07부로 무료 계정 월간 추론 크레딧($0.10)을 폐지해 BGE-M3 임베딩 호출이 전부 402로 거절, 배치 임베딩 단계가 매일 실패해 패치 18.4 승격이 막히고 챗봇 추천 계열 4개 의도도 불능이 된 사고(진행현황.md 2026-10-18 이력). CHAT-36으로 HF 의존을 완전히 제거: 배치는 검색 문서 텍스트만 적재(embedding NULL, 실행당 500청크 상한도 제거), 챗봇 검색은 PostgreSQL `pg_trgm` 텍스트 유사도로 교체. 3장 기술스택 표의 "벡터 DB"→"챗봇 검색", "임베딩" 행 갱신, 5장 /batch 설명·7장 무료 인프라 한도·10.2절 mock 정책의 HF 언급 정리. `/docs/reference/` schema·api-spec·policies·glossary 동시 갱신. 근거 문서 원본(개발설계서 docx)의 임베딩 관련 절은 아직 미반영 — PM 확인 후 별도 갱신 |

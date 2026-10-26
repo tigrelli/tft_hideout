@@ -383,7 +383,10 @@ class MetaDocumentEmbedding(Base):
     source_table: Mapped[str] = mapped_column(String, nullable=False)
     source_id: Mapped[int] = mapped_column(Integer, nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(
-        Vector(EMBEDDING_DIM), nullable=False
+    # CHAT-36: HF 임베딩 폐지 이후 배치는 벡터 없이(NULL) 적재한다 — 검색은
+    # content_text/metadata 기반 pg_trgm 텍스트 유사도(services/hybrid_search.py).
+    # 기존 패치의 벡터 값은 이력 보존용으로만 남아 있다.
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIM), nullable=True
     )
     doc_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False)

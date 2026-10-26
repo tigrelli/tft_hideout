@@ -100,7 +100,7 @@ def seeded_patch_session(migrated_engine: Engine) -> Session:
 def test_multi_topic_query_skips_intent_classification_and_search(
     seeded_patch_session: Session,
 ) -> None:
-    """H12 재현 — embed_fn/search_fn/web_search_fn/classify_fn 전혀 호출되지
+    """H12 재현 — search_fn/web_search_fn/classify_fn 전혀 호출되지
     않고 stream_fn만으로 답하는지 확인(general_rules와 동일한 설계)."""
 
     def fake_stream_fn(system_prompt: str, user_message: str):
@@ -116,7 +116,6 @@ def test_multi_topic_query_skips_intent_classification_and_search(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             H12_QUERY,
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -142,7 +141,6 @@ def test_multi_topic_query_records_chat_log_with_multi_topic_intent(
             seeded_patch_session,
             session_id,
             H12_QUERY,
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -177,10 +175,9 @@ def test_single_topic_question_still_uses_normal_intent_classification(
             seeded_patch_session,
             "33333333-3333-3333-3333-333333333333",
             "아이템 조합표를 알려주세요.",
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=tracking_classify_fn,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=lambda db, intent, patch, query: [],
             web_search_fn=lambda q: [],
             stream_fn=fake_stream_fn,
         )

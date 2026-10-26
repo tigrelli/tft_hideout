@@ -1,5 +1,7 @@
-"""DATA-11 pytest: mock 임베딩 클라이언트로 chunk->embedding upsert 동작,
-임베딩 차원(1024) 검증. HF Inference API는 mock으로 대체(policies.md 10.2/11).
+"""DATA-11 pytest: chunk 생성과 검색 문서 upsert 동작.
+
+CHAT-36(2026-10-18): HF 임베딩을 없애 벡터 없이 텍스트만 적재하므로, HF
+클라이언트·임베딩 차원 검증 테스트를 제거하고 upsert_documents 테스트로 옮겼다.
 """
 
 from __future__ import annotations
@@ -7,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -15,9 +16,6 @@ from sqlalchemy.orm import Session
 
 from db_session import models
 from embeddings import (
-    EMBEDDING_DIM,
-    EmbeddingError,
-    HuggingFaceEmbeddingClient,
     augment_chunk_text,
     champion_chunk_text,
     collect_chunks,
@@ -27,7 +25,7 @@ from embeddings import (
     item_build_chunk_text,
     item_chunk_text,
     playstyle_chunk_text,
-    upsert_embeddings,
+    upsert_documents,
 )
 
 # ---- 순수 텍스트 생성 함수(가벼운 fake 객체로 속성만 흉내) -----------------------
@@ -280,80 +278,7 @@ def test_is_charge_variant_item_false_for_plain_name() -> None:
     assert is_charge_variant_item("보석 건틀릿") is False
 
 
-# ---- HuggingFaceEmbeddingClient(mock transport) ---------------------------------
-
-
-def _one_hot_vector(index: int) -> list[float]:
-    vec = [0.0] * EMBEDDING_DIM
-    vec[index] = 1.0
-    return vec
-
-
-def test_embed_batch_returns_vectors_in_input_order() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization") == "Bearer fake-key"
-        return httpx.Response(200, json=[_one_hot_vector(0), _one_hot_vector(1)])
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key", transport=httpx.MockTransport(handler)
-    )
-    vectors = client.embed_batch(["첫문장", "둘째문장"])
-
-    assert len(vectors) == 2
-    assert len(vectors[0]) == EMBEDDING_DIM
-    assert vectors[0] == _one_hot_vector(0)
-
-
-def test_embed_batch_empty_input_returns_empty_list() -> None:
-    client = HuggingFaceEmbeddingClient(api_key="fake-key")
-    assert client.embed_batch([]) == []
-
-
-def test_embed_batch_retries_on_503_cold_start_then_succeeds() -> None:
-    attempts = {"n": 0}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        attempts["n"] += 1
-        if attempts["n"] == 1:
-            return httpx.Response(503, json={"error": "loading", "estimated_time": 20})
-        return httpx.Response(200, json=[_one_hot_vector(0)])
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key",
-        transport=httpx.MockTransport(handler),
-        retry_backoff_seconds=0,
-    )
-    vectors = client.embed_batch(["텍스트"])
-
-    assert attempts["n"] == 2
-    assert vectors == [_one_hot_vector(0)]
-
-
-def test_embed_batch_raises_after_exhausting_retries() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, json={"error": "loading"})
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key",
-        transport=httpx.MockTransport(handler),
-        max_retries=1,
-        retry_backoff_seconds=0,
-    )
-    with pytest.raises(EmbeddingError):
-        client.embed_batch(["텍스트"])
-
-
-def test_embed_one_returns_single_vector() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[_one_hot_vector(3)])
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key", transport=httpx.MockTransport(handler)
-    )
-    assert client.embed_one("텍스트") == _one_hot_vector(3)
-
-
-# ---- collect_chunks / upsert_embeddings(실제 마이그레이션 DB) -------------------
+# ---- collect_chunks / upsert_documents(실제 마이그레이션 DB) -------------------
 
 
 @pytest.fixture
@@ -607,8 +532,9 @@ def test_collect_chunks_caps_item_build_at_top_n_by_play_rate_per_champion(
     seeded_session: Session,
 ) -> None:
     """2026-08-07 운영에서 확인된 문제: champion_item_builds가 챔피언당 수백~천
-    단위라 전부 임베딩하면 안 됨(HuggingFace 무료 티어 소진 + 실제로는 0건만
-    임베딩돼 챗봇이 "아이템 빌드는 확인 안 됨"으로만 답하던 원인). champion_id별
+    단위라 전부 문서화하면 안 됨(당시엔 HuggingFace 무료 티어 소진 + 실제로는
+    0건만 임베딩돼 챗봇이 "아이템 빌드는 확인 안 됨"으로만 답하던 원인, CHAT-36
+    이후엔 검색 품질 때문에 유지). champion_id별
     play_rate 상위 TOP_BUILDS_PER_CHAMPION개만 남는지 검증한다."""
     from embeddings import TOP_BUILDS_PER_CHAMPION
 
@@ -638,29 +564,12 @@ def test_collect_chunks_caps_item_build_at_top_n_by_play_rate_per_champion(
     assert all("Item" in c["content_text"] for c in item_build_chunks)
 
 
-def test_upsert_embeddings_validates_dimension(seeded_session: Session) -> None:
-    chunks = [
-        {
-            "doc_type": "augment",
-            "source_table": "augments",
-            "source_id": 1,
-            "content_text": "x",
-            "metadata": {},
-        }
-    ]
-    with pytest.raises(ValueError, match="차원"):
-        upsert_embeddings(seeded_session, "17.8", chunks, [[0.1, 0.2]])
-
-
-def test_upsert_embeddings_same_patch_updates_not_duplicates(
+def test_upsert_documents_stores_text_without_vectors(
     seeded_session: Session,
 ) -> None:
+    """CHAT-36: 벡터 없이(embedding NULL) 텍스트·메타데이터만 적재된다."""
     chunks = collect_chunks(seeded_session, "17.8")
-    vectors = [_one_hot_vector(i % EMBEDDING_DIM) for i in range(len(chunks))]
-
-    upsert_embeddings(seeded_session, "17.8", chunks, vectors)
-    seeded_session.commit()
-    upsert_embeddings(seeded_session, "17.8", chunks, vectors)
+    upsert_documents(seeded_session, "17.8", chunks)
     seeded_session.commit()
 
     rows = seeded_session.scalars(
@@ -669,4 +578,68 @@ def test_upsert_embeddings_same_patch_updates_not_duplicates(
         )
     ).all()
     assert len(rows) == len(chunks)
-    assert all(len(r.embedding) == EMBEDDING_DIM for r in rows)
+    assert all(r.embedding is None for r in rows)
+    assert {r.content_text for r in rows} == {c["content_text"] for c in chunks}
+
+
+def test_upsert_documents_same_patch_updates_not_duplicates(
+    seeded_session: Session,
+) -> None:
+    chunks = collect_chunks(seeded_session, "17.8")
+
+    upsert_documents(seeded_session, "17.8", chunks)
+    seeded_session.commit()
+    upsert_documents(seeded_session, "17.8", chunks)
+    seeded_session.commit()
+
+    rows = seeded_session.scalars(
+        select(models.MetaDocumentEmbedding).where(
+            models.MetaDocumentEmbedding.patch_version == "17.8"
+        )
+    ).all()
+    assert len(rows) == len(chunks)
+
+
+def test_upsert_documents_clears_stale_vector_on_update(
+    seeded_session: Session,
+) -> None:
+    """CHAT-36 이전 배치가 남긴 벡터 행을 다시 적재하면, 바뀐 텍스트와 어긋난
+    옛 벡터가 남지 않도록 embedding이 NULL로 비워지고 텍스트는 갱신된다."""
+    chunk = {
+        "doc_type": "augment",
+        "source_table": "augments",
+        "source_id": 1,
+        "content_text": "새 텍스트",
+        "metadata": {"name": "가짜 증강"},
+    }
+    seeded_session.add(
+        models.MetaDocumentEmbedding(
+            patch_version="17.8",
+            doc_type="augment",
+            source_table="augments",
+            source_id=1,
+            content_text="옛 텍스트",
+            embedding=[0.1] * 1024,
+            doc_metadata={"name": "가짜 증강"},
+        )
+    )
+    seeded_session.commit()
+
+    upsert_documents(seeded_session, "17.8", [chunk])
+    seeded_session.commit()
+    seeded_session.expire_all()
+
+    row = seeded_session.scalars(
+        select(models.MetaDocumentEmbedding).where(
+            models.MetaDocumentEmbedding.source_table == "augments",
+            models.MetaDocumentEmbedding.source_id == 1,
+        )
+    ).one()
+    assert row.content_text == "새 텍스트"
+    assert row.embedding is None
+
+
+def test_upsert_documents_empty_input_is_noop(seeded_session: Session) -> None:
+    upsert_documents(seeded_session, "17.8", [])
+    seeded_session.commit()
+    assert seeded_session.scalars(select(models.MetaDocumentEmbedding)).first() is None

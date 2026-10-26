@@ -1,7 +1,8 @@
 """GitHub Actions가 실행하는 배치 진입점(DATA-14).
 
 DATA-12(패치 감지) -> 변경 있으면 DATA-08(op.gg)/DATA-09(Community Dragon) 수집 ->
-DATA-10(정규화) -> DATA-11(임베딩) -> DATA-13(원자적 전환)을 순서대로 잇는다.
+DATA-10(정규화) -> DATA-11(검색 문서 적재, CHAT-36부터 임베딩 없음) -> DATA-13(원자적
+전환)을 순서대로 잇는다.
 개별 단계 함수는 전부 이미 pytest로 검증돼 있으므로, 이 파일은 배선(glue)만
 담당하고 별도 로직을 추가하지 않는다.
 
@@ -12,13 +13,12 @@ PM이 수동 실행으로 먼저 검증한 뒤 별도로 켜기로 함.
 
 from __future__ import annotations
 
-import os
 import sys
 
 from cache_cleanup import delete_stale_chat_answer_cache
 from comps_refresh import refresh_comps
 from db_session import create_session
-from embeddings import HuggingFaceEmbeddingClient, collect_chunks, upsert_embeddings
+from embeddings import collect_chunks, upsert_documents
 from id_name_mapping import CommunityDragonClient, build_name_maps
 from normalize import (
     augment_rows,
@@ -44,11 +44,6 @@ from normalize import (
 from opgg_client import OpggMcpClient
 from patch_detection import run_patch_detection
 from patch_transition import BatchStep, run_batch_with_atomic_promotion
-
-# 무료 티어 호출량을 고려해 임베딩은 패치 변경분 전체가 아니라 상한을 두고 처리한다.
-# 나머지는 다음 실행(다음 시간) 때 이어서 처리되도록 doc_type별 upsert가 이미
-# 멱등적이라 여러 번 나눠 돌려도 안전하다(DATA-11 결정).
-MAX_CHUNKS_PER_RUN = int(os.environ.get("MAX_EMBED_CHUNKS_PER_RUN", "500"))
 
 
 def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
@@ -124,19 +119,19 @@ def _build_steps(session, set_number: int, state: dict) -> list[BatchStep]:
                 )
                 upsert_comp_traits(session, comp_id, comp_trait_rows(deck), trait_ids)
 
-    def step_embed() -> None:
-        chunks = collect_chunks(session, state["patch_version"])[:MAX_CHUNKS_PER_RUN]
-        if not chunks:
-            return
-        hf_key = os.environ["HUGGINGFACE_API_KEY"]
-        with HuggingFaceEmbeddingClient(api_key=hf_key) as client:
-            vectors = client.embed_batch([c["content_text"] for c in chunks])
-        upsert_embeddings(session, state["patch_version"], chunks, vectors)
+    def step_index() -> None:
+        # CHAT-36: HF 임베딩 없이 chunk 텍스트만 적재한다(외부 호출이 없어
+        # 예전 실행당 500개 상한도 없앰 — embeddings.py 모듈 docstring 참고).
+        upsert_documents(
+            session,
+            state["patch_version"],
+            collect_chunks(session, state["patch_version"]),
+        )
 
     return [
         BatchStep("collect", step_collect),
         BatchStep("normalize", step_normalize),
-        BatchStep("embed", step_embed),
+        BatchStep("index", step_index),
     ]
 
 
@@ -183,7 +178,7 @@ def main() -> int:
             print(
                 f"comps 주기 재수집(DATA-18): comp_count={refresh.comp_count} "
                 f"deactivated={refresh.deactivated_count} "
-                f"embedded_chunks={refresh.embedded_chunk_count}"
+                f"indexed_chunks={refresh.indexed_chunk_count}"
             )
         except Exception as exc:  # noqa: BLE001 - 배치 크론을 죽이지 않고 로그로만 알림
             session.rollback()

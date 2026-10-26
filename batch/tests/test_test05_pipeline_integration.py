@@ -1,19 +1,20 @@
 """TEST-05: 배치 파이프라인 통합 테스트 — 패치감지(DATA-12)→수집(DATA-08/09)→
-정규화(DATA-10)→임베딩(DATA-11)→원자적전환(DATA-13) end-to-end, DoD "정상/중간실패
+정규화(DATA-10)→검색 문서 적재(DATA-11, CHAT-36부터 임베딩 없음)→원자적전환(DATA-13)
+end-to-end, DoD "정상/중간실패
 시나리오 모두 검증".
 
 DATA-08~15는 각자 자기 단계만 단위 테스트한다. `run_patch_batch.py`가 이 단계들을
-실제로 잇긴 하지만, `step_collect`/`step_embed` 내부에서 진짜 op.gg MCP·Community
-Dragon·HuggingFace 클라이언트를 직접 생성해 호출하므로 자동화 테스트에서 그대로
+실제로 잇긴 하지만, `step_collect` 내부에서 진짜 op.gg MCP·Community Dragon
+클라이언트를 직접 생성해 호출하므로 자동화 테스트에서 그대로
 쓸 수 없다(policies.md 10.2 — 외부 API 실호출 금지). 이 파일은 `run_patch_batch.py`의
-`_build_steps()`와 같은 모양으로, 외부 I/O 경계(op.gg/cdragon 수집 결과, HuggingFace
-임베딩 벡터)만 고정 fixture/fake로 바꾸고 나머지(정규화·임베딩 DB 반영·원자적 전환)는
+`_build_steps()`와 같은 모양으로, 외부 I/O 경계(op.gg/cdragon 수집 결과)만 고정
+fixture/fake로 바꾸고 나머지(정규화·검색 문서 DB 반영·원자적 전환)는
 전부 실제 구현을 그대로 실행한다.
 
 DATA-13 자신의 테스트(test_data13_patch_transition.py)가 이미 BatchStep 오케스트레이션
 자체(성공/중간실패)는 촘촘히 검증하지만 손으로 만든 fake 스텝(`lambda: None`,
 가짜 Champion 1개 직접 add)만 쓴다 — 여기서는 실제 normalize.py/embeddings.py 함수를
-그대로 호출해 "실제 정규화·임베딩 결과물"이 원자적 전환과 맞물려도 똑같이 동작하는지
+그대로 호출해 "실제 정규화·검색 문서 결과물"이 원자적 전환과 맞물려도 똑같이 동작하는지
 확인한다.
 """
 
@@ -27,7 +28,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from db_session import models
-from embeddings import EMBEDDING_DIM, collect_chunks, upsert_embeddings
+from embeddings import collect_chunks, upsert_documents
 from id_name_mapping import build_name_maps
 from normalize import (
     augment_rows,
@@ -170,20 +171,15 @@ def _real_normalize_step(session: Session, patch_version: str) -> None:
             )
 
 
-def _real_embed_step(
+def _real_index_step(
     session: Session, patch_version: str, *, should_fail: bool
 ) -> None:
-    """run_patch_batch.py의 step_embed와 동일하게 collect_chunks(실제 DB 조회) +
-    upsert_embeddings(실제 upsert)를 쓰되, HuggingFace 호출 자리만 고정 벡터로
-    대체한다. should_fail=True면 임베딩 API 실패(예: 무료 티어 한도 초과)를
+    """run_patch_batch.py의 step_index와 동일하게 collect_chunks(실제 DB 조회) +
+    upsert_documents(실제 upsert)를 쓴다. should_fail=True면 마지막 단계 실패를
     흉내내 중간실패 시나리오를 재현한다."""
     if should_fail:
-        raise RuntimeError("HuggingFace 임베딩 API 실패(mock)")
-    chunks = collect_chunks(session, patch_version)
-    if not chunks:
-        return
-    vectors = [[0.1] * EMBEDDING_DIM for _ in chunks]
-    upsert_embeddings(session, patch_version, chunks, vectors)
+        raise RuntimeError("검색 문서 적재 실패(mock)")
+    upsert_documents(session, patch_version, collect_chunks(session, patch_version))
 
 
 @pytest.fixture
@@ -208,7 +204,7 @@ def _current_version(session: Session) -> str | None:
     )
 
 
-# ---- 정상 시나리오: 패치감지→수집→정규화→임베딩→원자적전환 전체 성공 -----------------
+# ---- 정상 시나리오: 패치감지→수집→정규화→문서적재→원자적전환 전체 성공 -----------------
 
 
 def test_normal_scenario_full_chain_promotes_patch_with_real_data(
@@ -220,8 +216,8 @@ def test_normal_scenario_full_chain_promotes_patch_with_real_data(
     steps = [
         BatchStep("normalize", lambda: _real_normalize_step(db_session, NEW_PATCH)),
         BatchStep(
-            "embed",
-            lambda: _real_embed_step(db_session, NEW_PATCH, should_fail=False),
+            "index",
+            lambda: _real_index_step(db_session, NEW_PATCH, should_fail=False),
         ),
     ]
     result = run_batch_with_atomic_promotion(db_session, NEW_PATCH, steps)
@@ -252,7 +248,7 @@ def test_normal_scenario_full_chain_promotes_patch_with_real_data(
     assert {e.doc_type for e in embeddings} >= {"comp", "playstyle"}
 
 
-# ---- 중간실패 시나리오: 정규화까지는 실제로 커밋되지만 임베딩 실패 -----------------
+# ---- 중간실패 시나리오: 정규화까지는 실제로 커밋되지만 문서 적재 실패 -----------------
 
 
 def test_mid_failure_scenario_normalize_persists_but_patch_stays_old(
@@ -264,19 +260,19 @@ def test_mid_failure_scenario_normalize_persists_but_patch_stays_old(
     steps = [
         BatchStep("normalize", lambda: _real_normalize_step(db_session, NEW_PATCH)),
         BatchStep(
-            "embed",
-            lambda: _real_embed_step(db_session, NEW_PATCH, should_fail=True),
+            "index",
+            lambda: _real_index_step(db_session, NEW_PATCH, should_fail=True),
         ),
     ]
     result = run_batch_with_atomic_promotion(db_session, NEW_PATCH, steps)
     db_session.commit()
 
     assert result.success is False
-    assert result.failed_step == "embed"
+    assert result.failed_step == "index"
     # 원자적 전환(DATA-13)이 실패해 이전 패치가 그대로 유지된다.
     assert _current_version(db_session) == OLD_PATCH
 
-    # 정규화(DATA-10) 단계는 임베딩 실패 이전에 이미 실행·커밋됐으므로, 새
+    # 정규화(DATA-10) 단계는 문서 적재 실패 이전에 이미 실행·커밋됐으므로, 새
     # patch_version으로 태깅된 실제 데이터는 DB에 남아있다(patch_transition.py
     # docstring에 명시된 의도된 동작 — "이건 정상이다").
     comp = db_session.scalar(
@@ -284,7 +280,7 @@ def test_mid_failure_scenario_normalize_persists_but_patch_stays_old(
     )
     assert comp is not None
 
-    # 반면 임베딩(DATA-11)은 실행되지 못했으므로 새 패치용 문서는 전혀 없다 —
+    # 반면 문서 적재(DATA-11)는 실행되지 못했으므로 새 패치용 문서는 전혀 없다 —
     # is_current가 여전히 이전 패치를 가리키므로 챗봇(CHAT-02)이 반쯤 완성된
     # 새 패치 데이터를 검색해 답하는 사고는 일어나지 않는다.
     new_patch_embeddings = db_session.scalars(

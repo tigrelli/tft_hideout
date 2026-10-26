@@ -203,3 +203,29 @@ def test_success_and_failure_both_recorded_in_patch_detection_runs(
 def test_promote_raises_if_target_version_row_missing(db_session: Session) -> None:
     with pytest.raises(ValueError, match="patches에"):
         promote_patch_to_current(db_session, "존재하지-않는-버전")
+
+
+# ---- CHAT-36: 단계 실패 원인이 로그에 남아야 함 ----------------------------------
+
+
+def test_step_failure_prints_step_name_and_traceback(
+    db_session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """2026-10-18 운영 장애: HF 402로 임베딩 단계가 열흘 넘게 매일 실패했는데,
+    예외를 출력 없이 삼켜 Actions 로그에 원인이 전혀 남지 않았다. 크론은 계속
+    살려두되(예외 전파 없음) 실패 단계와 예외 내용은 출력돼야 한다."""
+
+    def _fail():
+        raise RuntimeError("402 PrepaidCreditsRequired(mock)")
+
+    result = run_batch_with_atomic_promotion(
+        db_session, "17.8", [BatchStep(name="index", run=_fail)]
+    )
+    db_session.commit()
+
+    assert result.success is False
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "step=index" in output
+    assert "402 PrepaidCreditsRequired(mock)" in output
+    assert "Traceback" in output

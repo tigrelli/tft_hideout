@@ -218,7 +218,7 @@ def seeded_patch_session(migrated_engine: Engine) -> Session:
 def test_general_game_info_uses_web_search_not_internal_rag(
     seeded_patch_session: Session,
 ) -> None:
-    """embed_fn/search_fn(CHAT-02 내부 RAG)은 아예 호출되지 않고, web_search_fn만
+    """search_fn(CHAT-02 내부 RAG)은 아예 호출되지 않고, web_search_fn만
     호출되는지 확인 — CHAT-02가 커버 못하는 질문 전용 분기임을 검증."""
 
     def fake_stream_fn(system_prompt: str, user_message: str):
@@ -230,7 +230,6 @@ def test_general_game_info_uses_web_search_not_internal_rag(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "시즌 종료는 언제야",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),
@@ -270,7 +269,6 @@ def test_general_game_info_web_search_query_is_scoped_with_tft_context(
             seeded_patch_session,
             "55555555-5555-5555-5555-555555555555",
             "언제 서비스가 종료되나요?",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),
@@ -294,7 +292,6 @@ def test_general_game_info_records_chat_log_with_empty_retrieved_docs(
             seeded_patch_session,
             session_id,
             "시즌 종료는 언제야",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),
@@ -324,7 +321,6 @@ def test_general_game_info_falls_back_to_fallback_message_on_tavily_failure(
             seeded_patch_session,
             session_id,
             "시즌 종료는 언제야",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),
@@ -358,7 +354,6 @@ def test_general_game_info_answer_with_quoted_name_does_not_trigger_rag_groundin
             seeded_patch_session,
             "99999999-9999-9999-9999-999999999999",
             "시즌 종료는 언제야",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),
@@ -383,7 +378,6 @@ def test_general_game_info_answer_gets_citation_warning_for_hallucinated_url(
             seeded_patch_session,
             "44444444-4444-4444-4444-444444444444",
             "시즌 종료는 언제야",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_GAME_INFO,
             search_fn=_fail_if_called("search_fn"),

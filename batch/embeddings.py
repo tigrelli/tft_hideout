@@ -1,20 +1,23 @@
-"""DATA-11: 정규화 레코드(DATA-10) -> 자연어 chunk 변환 -> BGE-M3 임베딩 -> upsert.
+"""DATA-11: 정규화 레코드(DATA-10) -> 자연어 chunk 변환 -> 검색 문서 upsert.
 
-HF Inference API 엔드포인트: 레거시 `api-inference.huggingface.co`는 DNS 자체가
-뜨지 않음(2026-08-04 실호출로 확인, HF가 라우터 방식으로 이전한 것으로 보임).
-신규 엔드포인트 사용:
-`https://router.huggingface.co/hf-inference/models/{model}/pipeline/feature-extraction`
-— `inputs`에 문자열 리스트를 보내면 항상 `list[list[float]]`(배치, 원소 1개여도
-바깥이 리스트)로 응답한다(실호출로 확인).
+CHAT-36(2026-10-18): 원래 chunk를 BGE-M3(Hugging Face Inference API)로 임베딩해
+pgvector에 넣었으나, HF가 2026-10-07부로 무료 계정 추론 크레딧을 폐지해 모든
+호출이 402로 거절되면서 패치 승격이 막히는 운영 장애가 발생했다(진행현황.md
+2026-10-18 이력). 이제 chunk 텍스트·메타데이터만 `meta_document_embeddings`에
+적재하고(embedding 컬럼은 NULL), 챗봇은 pg_trgm 텍스트 유사도로 검색한다
+(backend/services/hybrid_search.py). 외부 API 호출이 없어 실행당 처리 상한도
+더 이상 필요 없다 — 상한(500) 때문에 18.x 패치엔 champion/item_build 문서가
+아예 빠져 있었다(같은 조사에서 확인).
+
+테이블·모듈 이름(`meta_document_embeddings`, `embeddings.py`)은 이력·참조 범위를
+고려해 그대로 둔다.
 """
 
 from __future__ import annotations
 
-import time
-from typing import Any, Self
+from typing import Any
 
-import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, null, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -23,81 +26,12 @@ from normalize import format_item_stats
 
 models = batch_db.models
 
-DEFAULT_HF_BASE_URL = "https://router.huggingface.co/hf-inference/models"
-DEFAULT_MODEL = "BAAI/bge-m3"
-EMBEDDING_DIM = 1024
-
 # backend/routers/catalog.py의 TOP_BUILDS_PER_CHAMPION과 반드시 같은 값으로
 # 유지한다(챗봇이 인용하는 빌드 범위가 /items/builds 화면에 보이는 범위와
 # 같아야 함). 2026-08-07 실측: champion_item_builds가 패치당 54,289행(챔피언당
-# 수백~천 단위 조합)이라 전부 임베딩하면 HuggingFace 무료 티어를 순식간에
-# 소진하고 RAG 품질도 떨어짐 — play_rate 상위 N개만 임베딩 대상으로 좁힌다.
+# 수백~천 단위 조합)이라 전부 문서화하면 RAG 품질이 떨어짐 — play_rate 상위
+# N개만 검색 문서 대상으로 좁힌다.
 TOP_BUILDS_PER_CHAMPION = 10
-
-
-class EmbeddingError(Exception):
-    """HF Inference API 호출 실패(HTTP 오류, 콜드스타트 재시도 소진 등)."""
-
-
-class HuggingFaceEmbeddingClient:
-    def __init__(
-        self,
-        api_key: str,
-        model: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_HF_BASE_URL,
-        timeout: float = 30.0,
-        max_retries: int = 3,
-        retry_backoff_seconds: float = 2.0,
-        transport: httpx.BaseTransport | None = None,
-    ) -> None:
-        self._url = f"{base_url}/{model}/pipeline/feature-extraction"
-        self._api_key = api_key
-        self._max_retries = max_retries
-        self._retry_backoff_seconds = retry_backoff_seconds
-        self._http = httpx.Client(timeout=timeout, transport=transport)
-
-    def close(self) -> None:
-        self._http.close()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        self.close()
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """texts 순서 그대로 임베딩 벡터 리스트를 반환한다. 빈 입력은 빈 리스트."""
-        if not texts:
-            return []
-
-        last_error: Exception | None = None
-        for attempt in range(self._max_retries + 1):
-            try:
-                response = self._http.post(
-                    self._url,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json={"inputs": texts, "options": {"wait_for_model": True}},
-                )
-                if response.status_code == 503:
-                    # 무료 인프라 콜드스타트(모델 로딩 중) 대응(policies.md 9번)
-                    last_error = EmbeddingError(f"모델 로딩 중(503): {response.text}")
-                    if attempt < self._max_retries:
-                        time.sleep(self._retry_backoff_seconds)
-                        continue
-                    raise last_error
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as exc:
-                last_error = exc
-                if attempt < self._max_retries:
-                    time.sleep(self._retry_backoff_seconds)
-        raise EmbeddingError(
-            f"HF Inference API 요청 실패: {last_error}"
-        ) from last_error
-
-    def embed_one(self, text: str) -> list[float]:
-        return self.embed_batch([text])[0]
-
 
 # ---- 순수 chunk 텍스트 생성 함수(DB 미접근) -------------------------------------
 
@@ -282,9 +216,9 @@ def collect_comp_and_playstyle_chunks(
 
 
 def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]:
-    """해당 패치의 comps/augments/champion_item_builds를 조회해 embed 대상
-    chunk(doc_type/source_table/source_id/content_text/metadata) 목록을 만든다.
-    임베딩 벡터는 아직 없음(embed_batch로 별도 계산 후 upsert_embeddings에 전달)."""
+    """해당 패치의 comps/augments/champion_item_builds 등을 조회해 검색 문서
+    chunk(doc_type/source_table/source_id/content_text/metadata) 목록을 만든다
+    (upsert_documents에 그대로 전달)."""
     chunks: list[dict[str, Any]] = collect_comp_and_playstyle_chunks(
         session, patch_version
     )
@@ -443,23 +377,17 @@ def collect_chunks(session: Session, patch_version: str) -> list[dict[str, Any]]
 # ---- upsert ---------------------------------------------------------------------
 
 
-def upsert_embeddings(
+def upsert_documents(
     session: Session,
     patch_version: str,
     chunks: list[dict[str, Any]],
-    embeddings: list[list[float]],
 ) -> None:
-    """chunks[i]에 embeddings[i]를 붙여 upsert한다(같은 (patch_version, doc_type,
-    source_table, source_id)는 갱신, 다르면 새 행 — DATA-10과 동일 원칙)."""
+    """chunk를 검색 문서로 upsert한다(같은 (patch_version, doc_type,
+    source_table, source_id)는 갱신, 다르면 새 행 — DATA-10과 동일 원칙).
+    CHAT-36: 벡터는 만들지 않는다. 기존 행을 갱신할 때도 embedding을 NULL로
+    비워, 바뀐 텍스트와 어긋난 옛 벡터가 남지 않게 한다."""
     if not chunks:
         return
-    if len(chunks) != len(embeddings):
-        raise ValueError("chunks와 embeddings 길이가 다릅니다")
-    for vector in embeddings:
-        if len(vector) != EMBEDDING_DIM:
-            raise ValueError(
-                f"임베딩 차원 불일치: {len(vector)} (기대값 {EMBEDDING_DIM}, BGE-M3)"
-            )
 
     values = [
         {
@@ -468,10 +396,9 @@ def upsert_embeddings(
             "source_table": chunk["source_table"],
             "source_id": chunk["source_id"],
             "content_text": chunk["content_text"],
-            "embedding": vector,
             "metadata": chunk["metadata"],
         }
-        for chunk, vector in zip(chunks, embeddings, strict=True)
+        for chunk in chunks
     ]
     # ORM 클래스(models.MetaDocumentEmbedding)로 바로 insert()하면 SQLAlchemy가
     # dict 키 "metadata"를 컬럼이 아니라 상속받은 DeclarativeBase.metadata(레지스트리)로
@@ -482,7 +409,7 @@ def upsert_embeddings(
         index_elements=["patch_version", "doc_type", "source_table", "source_id"],
         set_={
             "content_text": stmt.excluded.content_text,
-            "embedding": stmt.excluded.embedding,
+            "embedding": null(),
             "metadata": stmt.excluded.metadata,
         },
     )

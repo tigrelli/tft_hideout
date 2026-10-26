@@ -1,8 +1,8 @@
 """DATA-18 pytest: patch_version 미변경 상황(=run_patch_detection이 skip한
 경우)에서도 comps/comp_champions 재수집 트리거가 실제로 호출·반영되는지,
-그리고 comp+playstyle 재임베딩이 meta_document_embeddings를 최신 상태로
-유지하는지 검증한다(op.gg·HuggingFace는 실 호출 안 함 — mock/fake로 대체,
-policies.md 10.2/11).
+그리고 comp+playstyle 문서 재적재가 meta_document_embeddings를 최신 상태로
+유지하는지 검증한다(op.gg는 실 호출 안 함 — mock/fake로 대체, policies.md
+10.2/11. CHAT-36부터 HF 임베딩 자체가 없음).
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from comps_refresh import refresh_comps
 from db_session import models
-from embeddings import EMBEDDING_DIM
 from normalize import ensure_patch, upsert_champions, upsert_comps
 from patch_detection import run_patch_detection
 
@@ -57,11 +56,6 @@ class _FakeOpggClient:
         return {"set": 17, "version": self._version, "data": []}
 
 
-def _fake_embed_batch(texts: list[str]) -> list[list[float]]:
-    """실제 HuggingFace 호출 없이 텍스트 개수만큼 더미 벡터를 반환한다."""
-    return [[0.0] * EMBEDDING_DIM for _ in texts]
-
-
 @pytest.fixture
 def db_session(migrated_engine: Engine) -> Session:
     with Session(migrated_engine) as session:
@@ -87,7 +81,6 @@ def test_refresh_comps_upserts_comp_and_comp_champions(db_session: Session) -> N
         db_session,
         _FakeOpggClient(FAKE_META_DECKS),
         "17.8",
-        embed_batch_fn=_fake_embed_batch,
     )
     db_session.commit()
 
@@ -133,7 +126,6 @@ def test_refresh_comps_deactivates_comp_missing_from_new_response(
         db_session,
         _FakeOpggClient(FAKE_META_DECKS),
         "17.8",
-        embed_batch_fn=_fake_embed_batch,
     )
     db_session.commit()
 
@@ -149,7 +141,6 @@ def test_refresh_comps_records_patch_detection_run(db_session: Session) -> None:
         db_session,
         _FakeOpggClient(FAKE_META_DECKS),
         "17.8",
-        embed_batch_fn=_fake_embed_batch,
     )
     db_session.commit()
 
@@ -187,7 +178,6 @@ def test_run_patch_detection_skip_still_leaves_room_for_comps_refresh_trigger(
                 db_session,
                 _FakeOpggClient(FAKE_META_DECKS, version="17.8"),
                 detection.patch_version_after,
-                embed_batch_fn=_fake_embed_batch,
             )
         )
     db_session.commit()
@@ -196,19 +186,18 @@ def test_run_patch_detection_skip_still_leaves_room_for_comps_refresh_trigger(
     assert refresh_calls[0].comp_count == 1
 
 
-# ---- comp+playstyle 재임베딩(2026-08-07 PM 피드백 회귀) --------------------------
+# ---- comp+playstyle 문서 재적재(2026-08-07 PM 피드백 회귀) --------------------------
 
 
-def test_refresh_comps_embeds_comp_and_playstyle_chunks(db_session: Session) -> None:
+def test_refresh_comps_indexes_comp_and_playstyle_chunks(db_session: Session) -> None:
     result = refresh_comps(
         db_session,
         _FakeOpggClient(FAKE_META_DECKS),
         "17.8",
-        embed_batch_fn=_fake_embed_batch,
     )
     db_session.commit()
 
-    assert result.embedded_chunk_count == 2  # comp 1개 + playstyle 1개
+    assert result.indexed_chunk_count == 2  # comp 1개 + playstyle 1개
     comp = db_session.scalar(
         select(models.Comp).where(models.Comp.riot_comp_id == "comp-still-top10")
     )
@@ -220,6 +209,7 @@ def test_refresh_comps_embeds_comp_and_playstyle_chunks(db_session: Session) -> 
     ).all()
     assert {d.doc_type for d in docs} == {"comp", "playstyle"}
     assert all("가짜 조합" in d.content_text for d in docs)
+    assert all(d.embedding is None for d in docs)  # CHAT-36: 벡터 없음
 
 
 def test_refresh_comps_overwrites_stale_embedding_after_op_gg_rename(
@@ -228,8 +218,8 @@ def test_refresh_comps_overwrites_stale_embedding_after_op_gg_rename(
     """운영에서 실제로 재현된 문제: op.gg가 같은 riot_comp_id를 다른 이름으로
     재명명해도("별돌보미 자야" -> "별돌보미 리븐"), comps 테이블은 upsert로
     최신화되는데 meta_document_embeddings는 전체 배치 때만 재생성돼 옛 이름이
-    그대로 남아있었다. refresh_comps()가 재임베딩까지 하면 이 드리프트가
-    사라져야 한다."""
+    그대로 남아있었다. refresh_comps()가 문서 재적재까지 하면 이 드리프트가
+    사라져야 한다(CHAT-36: 옛 벡터도 함께 비워져야 함)."""
     comp_ids = upsert_comps(
         db_session,
         "17.8",
@@ -257,7 +247,7 @@ def test_refresh_comps_overwrites_stale_embedding_after_op_gg_rename(
             source_table="comps",
             source_id=comp_id,
             content_text="구이름 조합(티어 A): 옛날 정보",
-            embedding=[0.0] * EMBEDDING_DIM,
+            embedding=[0.0] * 1024,
             metadata={"name": "구이름 조합", "tier_rank": "A"},
         )
     )
@@ -268,7 +258,7 @@ def test_refresh_comps_overwrites_stale_embedding_after_op_gg_rename(
             source_table="comps",
             source_id=comp_id,
             content_text="구이름 조합 조합 플레이 스타일: 구이름 플레이 스타일",
-            embedding=[0.0] * EMBEDDING_DIM,
+            embedding=[0.0] * 1024,
             metadata={"name": "구이름 조합"},
         )
     )
@@ -283,7 +273,6 @@ def test_refresh_comps_overwrites_stale_embedding_after_op_gg_rename(
         db_session,
         _FakeOpggClient({**FAKE_META_DECKS, "data": [renamed_deck]}),
         "17.8",
-        embed_batch_fn=_fake_embed_batch,
     )
     db_session.commit()
 
@@ -297,3 +286,4 @@ def test_refresh_comps_overwrites_stale_embedding_after_op_gg_rename(
     assert all("새이름 조합" in d.content_text for d in docs)
     assert all("구이름" not in d.content_text for d in docs)
     assert all(d.doc_metadata["name"] == "새이름 조합" for d in docs)
+    assert all(d.embedding is None for d in docs)

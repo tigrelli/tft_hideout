@@ -15,7 +15,6 @@ from services.chat_session import (
     validate_session_id,
 )
 from services.chat_stream import build_sse_stream, generate_answer_stream
-from services.embedding_client import embed_query
 from services.groq_client import call_groq_chat, stream_groq_chat
 from services.hybrid_search import hybrid_search
 from services.intent_classification import classify_intent_for_query
@@ -85,7 +84,6 @@ def post_chat_message(
         db,
         body.session_id,
         body.message,
-        embed_fn=embed_query,
         offtopic_confirm_fn=is_off_topic_for_query,
         classify_fn=classify_intent_for_query,
         search_fn=hybrid_search,

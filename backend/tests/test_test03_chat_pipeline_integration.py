@@ -7,9 +7,9 @@ test_chat08_cache.py 등 29건 이상)는 전부 `classify_fn`/`search_fn`을 �
 람다로 갈아끼워서 실행하고, `test_api09_chat_message_stream.py`도 스스로
 "실제 LLM 파이프라인 배선은 CHAT-05가 대체했다"며 검증을 명시적으로 미뤄뒀다.
 즉 **실제 `classify_intent`(CHAT-01) → 실제 `hybrid_search`(CHAT-02, 진짜
-pgvector 검색) → `generate_answer_stream`의 오케스트레이션 → 실제
-`postprocess_answer`의 근거검증(CHAT-06)**이 한 번도 함께 실행된 적이 없다
-(외부 I/O인 Groq/HF만 계속 fake로 유지하는 게 맞고, 그 경계 안쪽은 전부 실제
+DB 검색, CHAT-36부터 pg_trgm 텍스트 검색) → `generate_answer_stream`의 오케스트레이션
+→ 실제 `postprocess_answer`의 근거검증(CHAT-06)**이 한 번도 함께 실행된 적이
+없다(외부 I/O인 Groq만 계속 fake로 유지하는 게 맞고, 그 경계 안쪽은 전부 실제
 구현을 그대로 쓴다). 이 파일은 그 배선 자체와, 서로 다른 doc_type(조합/증강체)
 샘플에 대한 근거율(grounding)을 검증한다.
 """
@@ -21,7 +21,7 @@ from sqlalchemy import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db.models import EMBEDDING_DIM, MetaDocumentEmbedding, Patch
+from db.models import MetaDocumentEmbedding, Patch
 from services.chat_postprocessing import UNVERIFIED_NAME_WARNING
 from services.chat_stream import generate_answer_stream
 from services.hybrid_search import hybrid_search
@@ -34,12 +34,6 @@ SESSION_ID = "11111111-1111-1111-1111-111111111111"
 
 def _fail_if_called(*args, **kwargs):
     raise AssertionError("Groq LLM이 호출되면 안 됨(키워드 1차 분류로 확정돼야 함)")
-
-
-def _one_hot(index: int) -> list[float]:
-    vec = [0.0] * EMBEDDING_DIM
-    vec[index] = 1.0
-    return vec
 
 
 @pytest.fixture
@@ -61,7 +55,6 @@ def seeded_session(migrated_engine: Engine) -> Session:
                 source_table="comps",
                 source_id=1,
                 content_text="리롤 요네: 8레벨 리롤 성향의 조합",
-                embedding=_one_hot(0),
                 doc_metadata={"name": "리롤 요네"},
             )
         )
@@ -72,7 +65,6 @@ def seeded_session(migrated_engine: Engine) -> Session:
                 source_table="augments",
                 source_id=1,
                 content_text="힘의 마법공학: 공격력이 증가한다",
-                embedding=_one_hot(1),
                 doc_metadata={"name": "힘의 마법공학"},
             )
         )
@@ -80,7 +72,7 @@ def seeded_session(migrated_engine: Engine) -> Session:
         yield session
 
 
-# doc_type별 (질의, 임베딩 인덱스, 실제 문서 이름) — comp_recommendation은 doc_type
+# doc_type별 (질의, 실제 문서 이름) — comp_recommendation은 doc_type
 # "comp"를, augment_recommendation은 "augment"를 검색하도록 keyword로 확정된다.
 # augment/item doc_type은 hybrid_search의 filter_by_name_overlap(CHAT-15)이
 # "질의 문자열에 문서 이름 글자가 50% 이상 겹쳐야" 통과시키므로(줄임말이
@@ -88,8 +80,8 @@ def seeded_session(migrated_engine: Engine) -> Session:
 # 문서 이름을 그대로 포함시켜야 한다 — comp/playstyle은 이 필터 대상이 아니라
 # 조합명을 안 담아도 된다(hybrid_search.py NAME_OVERLAP_DOC_TYPES 참고).
 SAMPLE_CASES = [
-    pytest.param("지금 메타 조합 추천해줘", 0, "리롤 요네", id="comp"),
-    pytest.param("힘의 마법공학 증강체 효과 알려줘", 1, "힘의 마법공학", id="augment"),
+    pytest.param("지금 메타 조합 추천해줘", "리롤 요네", id="comp"),
+    pytest.param("힘의 마법공학 증강체 효과 알려줘", "힘의 마법공학", id="augment"),
 ]
 
 
@@ -108,7 +100,6 @@ def test_real_pipeline_wiring_classify_search_postprocess(
             seeded_session,
             SESSION_ID,
             "지금 메타 조합 추천해줘",
-            embed_fn=lambda text: _one_hot(0),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: classify_intent(text, _fail_if_called),
             search_fn=hybrid_search,
@@ -121,9 +112,9 @@ def test_real_pipeline_wiring_classify_search_postprocess(
     assert UNVERIFIED_NAME_WARNING not in answer
 
 
-@pytest.mark.parametrize("query, embed_index, real_name", SAMPLE_CASES)
+@pytest.mark.parametrize("query, real_name", SAMPLE_CASES)
 def test_grounded_citation_of_real_search_result_passes_across_doc_types(
-    seeded_session: Session, query: str, embed_index: int, real_name: str
+    seeded_session: Session, query: str, real_name: str
 ) -> None:
     def fake_stream_fn(system_prompt: str, user_message: str):
         yield f"'{real_name}'을(를) 추천합니다."
@@ -133,7 +124,6 @@ def test_grounded_citation_of_real_search_result_passes_across_doc_types(
             seeded_session,
             SESSION_ID,
             query,
-            embed_fn=lambda text: _one_hot(embed_index),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: classify_intent(text, _fail_if_called),
             search_fn=hybrid_search,
@@ -145,9 +135,9 @@ def test_grounded_citation_of_real_search_result_passes_across_doc_types(
     assert UNVERIFIED_NAME_WARNING not in " ".join(tokens)
 
 
-@pytest.mark.parametrize("query, embed_index, real_name", SAMPLE_CASES)
+@pytest.mark.parametrize("query, real_name", SAMPLE_CASES)
 def test_ungrounded_citation_triggers_warning_despite_real_search_results(
-    seeded_session: Session, query: str, embed_index: int, real_name: str
+    seeded_session: Session, query: str, real_name: str
 ) -> None:
     """검색 자체는 실제 문서를 정상적으로 찾아오더라도, LLM이 그 문서에
     없는 이름을 인용하면(예: 지어낸 이름) 근거검증 경고가 붙어야 한다."""
@@ -160,7 +150,6 @@ def test_ungrounded_citation_triggers_warning_despite_real_search_results(
             seeded_session,
             SESSION_ID,
             query,
-            embed_fn=lambda text: _one_hot(embed_index),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: classify_intent(text, _fail_if_called),
             search_fn=hybrid_search,
@@ -183,9 +172,9 @@ def test_second_session_same_query_hits_cache_and_skips_real_pipeline(
     히트한다"를 검증하려면 두 번째 호출은 다른 session_id를 써야 한다."""
     search_calls = {"n": 0}
 
-    def counting_search_fn(db, intent, patch_version, embedding):
+    def counting_search_fn(db, intent, patch_version, query_text):
         search_calls["n"] += 1
-        return hybrid_search(db, intent, patch_version, embedding)
+        return hybrid_search(db, intent, patch_version, query_text)
 
     def fake_stream_fn(system_prompt: str, user_message: str):
         yield "'리롤 요네'는 이번 패치 S티어 조합입니다."
@@ -196,7 +185,6 @@ def test_second_session_same_query_hits_cache_and_skips_real_pipeline(
                 seeded_session,
                 session_id,
                 "지금 메타 조합 추천해줘",
-                embed_fn=lambda text: _one_hot(0),
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=lambda text: classify_intent(text, _fail_if_called),
                 search_fn=counting_search_fn,

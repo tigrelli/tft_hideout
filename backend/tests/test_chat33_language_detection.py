@@ -23,7 +23,7 @@ def _fail_if_called(name: str):
 def test_english_question_short_circuits_with_language_notice(
     migrated_engine: Engine,
 ) -> None:
-    """embed_fn/offtopic_confirm_fn/classify_fn/search_fn/web_search_fn/stream_fn
+    """offtopic_confirm_fn/classify_fn/search_fn/web_search_fn/stream_fn
     전부 호출되지 않고, patch_version 조회조차 필요 없는 가장 이른 조기
     반환인지 확인(patch 데이터 없는 순수 migrated_engine으로 검증,
     chatbot_meta·off_topic과 동일한 설계)."""
@@ -33,7 +33,6 @@ def test_english_question_short_circuits_with_language_notice(
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "Can you explain the best comp in English?",
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=_fail_if_called("offtopic_confirm_fn"),
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -53,7 +52,6 @@ def test_korean_question_is_not_affected(migrated_engine: Engine) -> None:
                 session,
                 "22222222-2222-2222-2222-222222222222",
                 "오늘 점심 뭐 먹지",
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=lambda text: True,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
