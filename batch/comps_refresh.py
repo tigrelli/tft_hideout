@@ -20,13 +20,14 @@ comp+playstyle 재임베딩(2026-08-07 추가, PM 피드백): comps.name/tier_ra
 임베딩 인덱스가 어긋나는 사례가 실제 운영에서 확인됐다(리롤 성향 등 이미
 바뀐 수치를 챗봇이 옛 이름으로 인용). comps/comp_champions를 upsert한 직후
 comp+playstyle 청크만 다시 임베딩해 이 드리프트를 막는다 — 하루 10개
-조합×2청크 수준이라 HuggingFace 무료 티어 호출량 영향은 미미하다."""
+조합×2청크 수준이라 HuggingFace 무료 티어 호출량 영향은 미미하다.
+
+CHAT-36(2026-10-18): HF 무료 크레딧 폐지로 임베딩을 없애고 chunk 텍스트만
+다시 적재한다(embeddings.upsert_documents) — 외부 호출 없이 DB 안에서 끝난다."""
 
 from __future__ import annotations
 
-import os
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -34,11 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import db_session as batch_db
-from embeddings import (
-    HuggingFaceEmbeddingClient,
-    collect_comp_and_playstyle_chunks,
-    upsert_embeddings,
-)
+from embeddings import collect_comp_and_playstyle_chunks, upsert_documents
 from normalize import (
     comp_champion_rows,
     comp_rows,
@@ -57,7 +54,7 @@ models = batch_db.models
 class CompsRefreshResult:
     comp_count: int
     deactivated_count: int
-    embedded_chunk_count: int
+    indexed_chunk_count: int
     duration_ms: int
 
 
@@ -67,13 +64,10 @@ def refresh_comps(
     patch_version: str,
     *,
     now: datetime | None = None,
-    embed_batch_fn: Callable[[list[str]], list[list[float]]] | None = None,
 ) -> CompsRefreshResult:
     """op.gg 최신 메타 조합으로 comps/comp_champions를 갱신하고 comp+playstyle
-    청크를 재임베딩한 뒤 `patch_detection_runs`에 결과를 기록한다
-    (session.commit은 호출부 몫). embed_batch_fn을 넘기지 않으면 실제
-    HuggingFaceEmbeddingClient를 사용한다(테스트에서는 fake 주입,
-    patch_detection.run_patch_detection의 opgg_client 주입과 동일한 패턴)."""
+    청크를 다시 적재한 뒤 `patch_detection_runs`에 결과를 기록한다
+    (session.commit은 호출부 몫)."""
     start = time.monotonic()
     triggered_at = now or datetime.now(UTC)
 
@@ -111,17 +105,7 @@ def refresh_comps(
     session.flush()
 
     chunks = collect_comp_and_playstyle_chunks(session, patch_version)
-    embedded_chunk_count = 0
-    if chunks:
-        texts = [c["content_text"] for c in chunks]
-        if embed_batch_fn is not None:
-            vectors = embed_batch_fn(texts)
-        else:
-            hf_key = os.environ["HUGGINGFACE_API_KEY"]
-            with HuggingFaceEmbeddingClient(api_key=hf_key) as client:
-                vectors = client.embed_batch(texts)
-        upsert_embeddings(session, patch_version, chunks, vectors)
-        embedded_chunk_count = len(chunks)
+    upsert_documents(session, patch_version, chunks)
 
     duration_ms = int((time.monotonic() - start) * 1000)
     session.add(
@@ -137,6 +121,6 @@ def refresh_comps(
     return CompsRefreshResult(
         comp_count=len(comp_ids),
         deactivated_count=deactivated,
-        embedded_chunk_count=embedded_chunk_count,
+        indexed_chunk_count=len(chunks),
         duration_ms=duration_ms,
     )

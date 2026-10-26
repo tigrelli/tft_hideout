@@ -362,10 +362,9 @@ def generate_answer_stream(
     session_id: str,
     raw_message: str,
     *,
-    embed_fn: Callable[[str], list[float]],
     offtopic_confirm_fn: Callable[[str], bool],
     classify_fn: Callable[[str], str],
-    search_fn: Callable[[Session, str, str, list[float]], list[MetaDocumentEmbedding]],
+    search_fn: Callable[[Session, str, str, str], list[MetaDocumentEmbedding]],
     stream_fn: Callable[[str, str], Generator[str, None, None]],
     web_search_fn: Callable[[str], list[WebSearchResult]],
     result: dict[str, object] | None = None,
@@ -534,7 +533,7 @@ def generate_answer_stream(
     # 코스트 챔피언들이 섞여 나옴). 직전 답변에 이미 정확한 champion_id가
     # 링크로 박혀있으므로(CHAT-07), item_recommendation 후속 턴에서는 의미
     # 검색 대신 그 id로 구조화 조회한다 — 성공하면(=직전 답변에 챔피언
-    # 링크가 있으면) 임베딩 호출 자체를 건너뛰어 HuggingFace 호출도 아낀다.
+    # 링크가 있으면) 텍스트 검색 자체를 건너뛴다.
     retrieved_docs: list[MetaDocumentEmbedding] = []
     if intent == INTENT_ITEM_RECOMMENDATION and conversation_history:
         champion_ids = extract_champion_ids_from_answer(conversation_history[-1].answer)
@@ -547,12 +546,12 @@ def generate_answer_stream(
         search_query_text = _build_search_query_text(
             preprocessed.normalized_text, conversation_history
         )
-        query_embedding = embed_fn(search_query_text)
-        retrieved_docs = search_fn(db, intent, patch_version, query_embedding)
+        # CHAT-36: 질의 임베딩(HF) 없이 텍스트 그대로 pg_trgm 검색에 넘긴다.
+        retrieved_docs = search_fn(db, intent, patch_version, search_query_text)
         # CHAT-15 2차 보정: 거리 임계값만으로는 못 거르는 회색지대("광폭검
         # 효과는?"이 '포악한 절단검'과 거리 0.49로 우연히 통과, 2026-08-09
         # PM 검증 중 발견)를 이름 문자 겹침 비율로 추가 방어(hybrid_search.py
-        # 참고). search_fn이 이미 patch_version/doc_type/거리 필터를 마쳤으므로
+        # 참고). search_fn이 이미 patch_version/doc_type/관련도 필터를 마쳤으므로
         # 여기서는 item/augment만 한 번 더 거른다.
         retrieved_docs = filter_by_name_overlap(retrieved_docs, search_query_text)
 

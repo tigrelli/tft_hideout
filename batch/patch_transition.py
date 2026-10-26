@@ -12,6 +12,7 @@ patch_version으로 태깅된 채) — 이건 정상이다. 이 모듈이 보장
 from __future__ import annotations
 
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -83,6 +84,12 @@ def run_batch_with_atomic_promotion(
             step.run()
         except Exception:  # noqa: BLE001 - 배치 크론을 죽이지 않고 결과로 알림
             failed_step = step.name
+            # CHAT-36(2026-10-18): 예외를 출력 없이 삼켜, HF 402로 18.4 승격이
+            # 열흘 넘게 매일 실패하는 동안 Actions 로그에 원인이 전혀 남지 않았다
+            # (patch_detection_runs엔 "failed"만 기록). 크론은 계속 살려두되
+            # 원인 추적이 가능하도록 traceback을 출력한다.
+            print(f"배치 단계 실패: step={step.name} patch_version={new_version}")
+            traceback.print_exc()
             break
 
     success = failed_step is None

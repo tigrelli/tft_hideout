@@ -1,13 +1,30 @@
-"""CHAT-02: SQL 필터(현재 패치 + 의도별 doc_type) + pgvector top-k 코사인 검색.
+"""CHAT-02: SQL 필터(현재 패치 + 의도별 doc_type) + 관련도 top-k 검색.
 
 의도별 검색 대상은 glossary.md "챗봇 의도 분류(4종, 고정)"을 그대로 따른다.
+
+CHAT-36(2026-10-18): Hugging Face가 2026-10-07부로 무료 계정 추론 크레딧을
+폐지해 BGE-M3 질의 임베딩을 더 이상 만들 수 없게 되면서(진행현황.md 2026-10-18
+이력), pgvector 코사인 거리 대신 Postgres `pg_trgm` 텍스트 유사도로 관련도를
+계산한다. 외부 API 호출 없이 DB 안에서 끝난다. 관련도 신호는 두 가지다.
+
+1. 이름 점수(주 신호): 문서의 이름 키(metadata의 name/champion, 그리고
+   champions/items 목록)가 질의 문자열 안에 얼마나 들어있는지 —
+   `word_similarity(이름, 질의)`. 챗봇 질문 대부분은 고유명사(챔피언·아이템·
+   증강·조합 이름)를 포함하고, 줄임말은 CHAT-31 사전이 이미 정식 명칭으로
+   치환한 뒤 여기로 오므로 이 신호가 가장 정확하다(2026-10-18 실측: 정답 1.00,
+   무관한 문서 0~0.4).
+2. 본문 점수(보조 신호): 질의가 content_text에 얼마나 들어있는지 —
+   `word_similarity(질의, 본문)`. "효과는", "추천" 같은 흔한 단어 때문에
+   노이즈가 커서(실측: 존재하지 않는 "광폭검 효과는?"도 0.50) 가중치를 낮춰
+   보조로만 쓴다. "3코스트 챔피언은?"처럼 이름 없이 속성을 묻는 질의에 쓰인다.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, cast, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased
 
 from db.models import Champion, MetaDocumentEmbedding
@@ -76,8 +93,10 @@ ITEM_DESCRIPTION_TOP_K = 3
 # 순수 코사인 거리만으로 정렬하면 "메타" 같은 추상 질의에서 A티어가 OP/S보다
 # 먼저 뽑히는 문제가 실제로 확인돼(2026-08-07 PM 피드백 — "현재 메타는?"과
 # "메타"에 서로 다른 A티어 조합만 나오고 OP/S티어인 N.O.V.A. 아칼리는 아예
-# 안 뽑힘), 티어를 1차 정렬 기준으로 두고 코사인 거리는 동티어 내 2차
-# 기준으로만 쓴다. tier_rank가 없는 문서(playstyle 등)는 unknown과 동일하게
+# 안 뽑힘), 티어를 1차 정렬 기준으로 두고 코사인 거리(CHAT-36 이후 텍스트
+# 관련도)는 동티어 내 2차 기준으로만 쓴다(단 CHAT-36부터 질의가 이름으로
+# 지목한 문서는 티어보다 앞선다 — _order_by() 참고). tier_rank가 없는
+# 문서(playstyle 등)는 unknown과 동일하게
 # 가장 낮은 우선순위로 취급된다.
 _TIER_RANK_PRIORITY = case(
     (MetaDocumentEmbedding.doc_metadata["tier_rank"].astext == "OP", 0),
@@ -101,83 +120,142 @@ _ACTIVE_PRIORITY = case(
     else_=0,
 )
 
-# CHAT-15: pgvector 코사인 거리는 지금까지 정렬(가까운 순)에만 쓰이고 값 자체는
-# 버려졌다 — top-k 안에만 들면 아무리 멀어도 근거 문서로 채택돼, 사전
-# (SLANG_DICTIONARY)에 없는 줄임말·오타 질의("죽무 효과는?")가 전혀 다른
-# 아이템('절멸자')을 확신에 찬 문장으로 답하는 사고가 실제로 발생했다(CHAT-14
-# PM 제보, 2026-08-09). doc_type별 실측(같은 날) 결과: item은 정상 매칭
-# 0.38~0.46 vs 오매칭 0.59(정답 문서는 0.65/52위)로 확실히 분리되고, augment도
-# 정상 매칭 0.38~0.42 vs 애매한 질의 0.51~0.53로 비슷하게 분리돼 최소 유사도
-# 임계값을 안전하게 둘 수 있다. 반면 champion은 정상적인 "특정 챔피언 이름"
-# 질의조차 거리 0.507로 item의 "나쁜 매칭" 구간과 겹치고(2026-08-07에 이미
-# 넉넉한 top_k=20으로 튜닝된 목록형 검색이라 raw 거리 자체가 애초에 "최선의
-# 매칭"을 뜻하지 않음), comp도 특정 조합명이 아닌 일반 "메타 추천" 질의가
-# 정상인데 거리 0.48~0.49로 나와(위 comp 균등배분 주석 참고) 임계값을 걸면
-# 정상 케이스가 깨질 위험이 실측으로 확인됐다 — 그래서 item·augment 두
-# doc_type에만 한정 적용한다(값을 넘겨받지 않은 doc_type은 기존과 동일하게
-# 무제한). 여기 정의되지 않은 doc_type은 임계값 없이(None) 기존 동작 그대로.
-_DOC_TYPE_MAX_DISTANCE: dict[str, float] = {
-    "item": 0.5,
-    "augment": 0.5,
+# CHAT-36: 관련도 계산 가중치. 목록 키(조합 구성 챔피언, 빌드 아이템)는 문서
+# 자체의 이름보다 한 단계 약한 근거라(예: "아지르 조합" 질의에서 조합명에
+# 아지르가 들어간 조합이 구성원으로만 아지르를 가진 조합보다 앞서야 함) 약간
+# 낮춘다. 본문 점수는 위 모듈 docstring의 이유로 절반만 반영한다.
+_LIST_KEY_WEIGHT = 0.9
+_CONTENT_WEIGHT = 0.5
+
+# CHAT-36: 이 값 이상이면 "질의가 이 문서를 이름으로 지목했다"고 본다. 조사가
+# 붙은 이름("아리를")도 0.67 정도로 통과하고, 일부 글자만 겹치는 다른 이름
+# ("공허 건틀릿" vs "보석 건틀릿 효과는?" 0.57)은 걸러진다(2026-10-18 실측).
+# 정렬에서 활성 여부 다음, 티어보다 앞선 기준으로 쓴다 — 이름을 지목하지 않은
+# 일반 질의("요즘 메타 조합?")는 모든 문서가 미달이라 기존과 동일하게 티어 순.
+NAME_HIT_MIN_SCORE = 0.6
+
+# CHAT-15(임계값 도입) → CHAT-36(텍스트 유사도로 재정의): top-k 안에만 들면
+# 아무리 관련이 없어도 근거 문서로 채택돼, 사전(SLANG_DICTIONARY)에 없는
+# 줄임말·오타 질의("죽무 효과는?")가 전혀 다른 아이템을 확신에 찬 문장으로
+# 답하는 사고가 실제로 있었다(CHAT-14 PM 제보, 2026-08-09). item·augment는
+# 효과 자체를 묻는 질의라 이름 지목이 정상이므로 최소 관련도를 요구한다
+# (본문 점수만으로는 "광폭검 효과는?"이 0.50×가중치로 통과하지 못하도록
+# NAME_HIT_MIN_SCORE와 같은 값). champion·comp 등 목록형·일반 추천 질의가
+# 정상인 doc_type은 기존과 동일하게 임계값 없음.
+_DOC_TYPE_MIN_RELEVANCE: dict[str, float] = {
+    "item": NAME_HIT_MIN_SCORE,
+    "augment": NAME_HIT_MIN_SCORE,
 }
+
+
+def _list_key_score(key: str, query_text: str) -> Any:
+    """doc_metadata[key]가 문자열 배열(comp/playstyle의 champions, item_build의
+    items)일 때, 원소 중 질의에 가장 잘 들어맞는 이름의 점수. 키가 없거나
+    배열이 아니면 0."""
+    values = MetaDocumentEmbedding.doc_metadata[key]
+    array_or_empty = case(
+        (func.jsonb_typeof(values) == "array", values),
+        else_=cast(literal("[]"), JSONB),
+    )
+    elements = func.jsonb_array_elements_text(array_or_empty).table_valued("value")
+    return func.coalesce(
+        select(func.max(func.word_similarity(elements.c.value, query_text)))
+        .correlate(MetaDocumentEmbedding)
+        .scalar_subquery(),
+        0.0,
+    )
+
+
+def _name_score(query_text: str) -> Any:
+    """문서 이름 키가 질의 안에 얼마나 들어있는지(0~1, 모듈 docstring 1번)."""
+    metadata = MetaDocumentEmbedding.doc_metadata
+    return func.greatest(
+        func.coalesce(func.word_similarity(metadata["name"].astext, query_text), 0.0),
+        func.coalesce(
+            func.word_similarity(metadata["champion"].astext, query_text), 0.0
+        ),
+        _list_key_score("champions", query_text) * _LIST_KEY_WEIGHT,
+        _list_key_score("items", query_text) * _LIST_KEY_WEIGHT,
+    )
+
+
+def _relevance(query_text: str) -> Any:
+    """정렬·임계값에 쓰는 관련도(0~1, 클수록 관련). 이름 점수와 가중 본문
+    점수 중 큰 값."""
+    content_score = func.word_similarity(query_text, MetaDocumentEmbedding.content_text)
+    return func.greatest(_name_score(query_text), content_score * _CONTENT_WEIGHT)
+
+
+def _name_hit_priority(relevance: Any) -> Any:
+    return case((relevance >= NAME_HIT_MIN_SCORE, 0), else_=1)
+
+
+def _order_by(relevance: Any) -> tuple[Any, ...]:
+    """CHAT-18 활성 우선 → CHAT-36 이름 지목 우선 → 티어 → 관련도 → id(동점 시
+    결과를 결정적으로 만들기 위함)."""
+    return (
+        _ACTIVE_PRIORITY,
+        _name_hit_priority(relevance),
+        _TIER_RANK_PRIORITY,
+        relevance.desc(),
+        MetaDocumentEmbedding.id,
+    )
 
 
 def hybrid_search(
     session: Session,
     intent: str,
     patch_version: str,
-    query_embedding: list[float],
+    query_text: str,
     top_k: int = DEFAULT_TOP_K,
 ) -> list[MetaDocumentEmbedding]:
     """의도에 대응하는 doc_type + 현재 patch_version으로 먼저 SQL 필터링한 뒤,
-    그 안에서 pgvector 코사인 거리 오름차순(가까운 순) top-k를 반환한다.
+    그 안에서 관련도(pg_trgm, 모듈 docstring 참고) 순 top-k를 반환한다.
 
-    general_strategy는 doc_type 4종을 통합해 순수 벡터 유사도로만 top-k를
+    general_strategy는 doc_type 4종을 통합해 순수 유사도로만 top-k를
     뽑았는데, 실제로 "현재 메타는?" 같은 추상적 질의에서 특정 타입(관측:
     augment)이 결과를 통째로 차지해 comp가 전혀 검색되지 않는 문제가 확인됐다
-    (2026-08-07 PM 피드백 — 실측: 상위 8개 전부 augment, 최상위 comp는 전체
-    377개 청크 중 112위. comp_chunk_text가 숫자 위주라 짧고 추상적인 질의와
-    임베딩 거리가 먼 것으로 추정). doc_type별로 균등 배분해 검색하면 특정
-    타입이 결과를 독식하지 못한다 — general_strategy에서만 이 방식을 쓰고,
-    나머지 의도는 doc_type이 애초에 좁아 기존 방식을 그대로 둔다."""
+    (2026-08-07 PM 피드백). doc_type별로 균등 배분해 검색하면 특정 타입이
+    결과를 독식하지 못한다 — general_strategy에서만 이 방식을 쓰고, 나머지
+    의도는 doc_type이 애초에 좁아 기존 방식을 그대로 둔다."""
     doc_types = INTENT_DOC_TYPES[intent]
     if intent == INTENT_GENERAL_STRATEGY:
         return _balanced_search_by_doc_type(
-            session, doc_types, patch_version, query_embedding, top_k
+            session, doc_types, patch_version, query_text, top_k
         )
     if intent == INTENT_ITEM_RECOMMENDATION:
-        return _balanced_item_build_search(session, patch_version, query_embedding)
-    distance = MetaDocumentEmbedding.embedding.cosine_distance(query_embedding)
+        return _balanced_item_build_search(session, patch_version, query_text)
+    relevance = _relevance(query_text)
     stmt = (
         select(MetaDocumentEmbedding)
         .where(
             MetaDocumentEmbedding.patch_version == patch_version,
             MetaDocumentEmbedding.doc_type.in_(doc_types),
-            _distance_within_threshold(doc_types, distance),
+            _relevance_within_threshold(doc_types, relevance),
         )
-        .order_by(_ACTIVE_PRIORITY, _TIER_RANK_PRIORITY, distance)
+        .order_by(*_order_by(relevance))
         .limit(top_k)
     )
     return list(session.scalars(stmt).all())
 
 
-def _distance_within_threshold(
-    doc_types: tuple[str, ...] | list[str], distance: Any
+def _relevance_within_threshold(
+    doc_types: tuple[str, ...] | list[str], relevance: Any
 ) -> Any:
-    """doc_types 중 _DOC_TYPE_MAX_DISTANCE에 임계값이 정의된 타입은 그 거리
-    이하만, 정의되지 않은 타입은 무제한으로 통과시키는 OR 조건을 만든다(여러
+    """doc_types 중 _DOC_TYPE_MIN_RELEVANCE에 임계값이 정의된 타입은 그 관련도
+    이상만, 정의되지 않은 타입은 무제한으로 통과시키는 OR 조건을 만든다(여러
     doc_type을 한 SQL 쿼리로 함께 조회하는 지점 — comp_recommendation의
     ("comp","playstyle"), augment_recommendation의 ("augment",) — 에서
     doc_type마다 다른 임계값 정책을 적용하기 위함)."""
     conditions = []
     for doc_type in doc_types:
-        max_distance = _DOC_TYPE_MAX_DISTANCE.get(doc_type)
-        if max_distance is None:
+        min_relevance = _DOC_TYPE_MIN_RELEVANCE.get(doc_type)
+        if min_relevance is None:
             conditions.append(MetaDocumentEmbedding.doc_type == doc_type)
         else:
             conditions.append(
                 (MetaDocumentEmbedding.doc_type == doc_type)
-                & (distance <= max_distance)
+                & (relevance >= min_relevance)
             )
     return or_(*conditions)
 
@@ -186,26 +264,26 @@ def _search_single_doc_type(
     session: Session,
     doc_type: str,
     patch_version: str,
-    query_embedding: list[float],
+    query_text: str,
     count: int,
 ) -> list[MetaDocumentEmbedding]:
-    """CHAT-15: doc_type이 _DOC_TYPE_MAX_DISTANCE에 있으면 그 거리를 넘는(=너무
-    먼) 결과는 애초에 제외한다(호출부 변경 없이 이 함수 안에서 자동 적용 —
-    champion처럼 정의 안 된 doc_type은 기존과 100% 동일하게 동작)."""
+    """doc_type이 _DOC_TYPE_MIN_RELEVANCE에 있으면 그 관련도에 못 미치는 결과는
+    애초에 제외한다(호출부 변경 없이 이 함수 안에서 자동 적용 — champion처럼
+    정의 안 된 doc_type은 임계값 없음)."""
     if count <= 0:
         return []
-    distance = MetaDocumentEmbedding.embedding.cosine_distance(query_embedding)
-    max_distance = _DOC_TYPE_MAX_DISTANCE.get(doc_type)
+    relevance = _relevance(query_text)
+    min_relevance = _DOC_TYPE_MIN_RELEVANCE.get(doc_type)
     conditions = [
         MetaDocumentEmbedding.patch_version == patch_version,
         MetaDocumentEmbedding.doc_type == doc_type,
     ]
-    if max_distance is not None:
-        conditions.append(distance <= max_distance)
+    if min_relevance is not None:
+        conditions.append(relevance >= min_relevance)
     stmt = (
         select(MetaDocumentEmbedding)
         .where(*conditions)
-        .order_by(_ACTIVE_PRIORITY, _TIER_RANK_PRIORITY, distance)
+        .order_by(*_order_by(relevance))
         .limit(count)
     )
     return list(session.scalars(stmt).all())
@@ -215,14 +293,14 @@ def _balanced_search_by_doc_type(
     session: Session,
     doc_types: tuple[str, ...],
     patch_version: str,
-    query_embedding: list[float],
+    query_text: str,
     top_k: int,
 ) -> list[MetaDocumentEmbedding]:
     """champion은 GENERAL_STRATEGY_CHAMPION_TOP_K로 고정 배정하고(코스트
     목록형 질문 대응), 나머지 doc_type끼리 top_k를 균등 배분한다(나머지는
     앞쪽 타입부터 1개씩 더 배정 — doc_types 순서상 comp가 먼저라 "메타"
-    질의에 가장 중요한 타입이 우선권을 가짐). 타입별로 각각 top-N 벡터
-    검색을 수행해 합친다."""
+    질의에 가장 중요한 타입이 우선권을 가짐). 타입별로 각각 top-N 검색을
+    수행해 합친다."""
     results: list[MetaDocumentEmbedding] = []
     if "champion" in doc_types:
         results.extend(
@@ -230,7 +308,7 @@ def _balanced_search_by_doc_type(
                 session,
                 "champion",
                 patch_version,
-                query_embedding,
+                query_text,
                 GENERAL_STRATEGY_CHAMPION_TOP_K,
             )
         )
@@ -240,9 +318,7 @@ def _balanced_search_by_doc_type(
     for index, doc_type in enumerate(remaining_types):
         count = base + (1 if index < remainder else 0)
         results.extend(
-            _search_single_doc_type(
-                session, doc_type, patch_version, query_embedding, count
-            )
+            _search_single_doc_type(session, doc_type, patch_version, query_text, count)
         )
     return results
 
@@ -250,20 +326,20 @@ def _balanced_search_by_doc_type(
 def _balanced_item_build_search(
     session: Session,
     patch_version: str,
-    query_embedding: list[float],
+    query_text: str,
 ) -> list[MetaDocumentEmbedding]:
-    """doc_metadata->>'champion'으로 파티션해 챔피언별 코사인 거리 순위를
-    매기고, 챔피언당 ITEM_BUILD_PER_CHAMPION_LIMIT개까지만 남긴 뒤 전체를
-    거리순으로 다시 정렬해 ITEM_RECOMMENDATION_TOP_K개로 자른다 — 특정
-    챔피언 1~2명의 빌드가 슬롯을 독식해 다른 챔피언은 아예 안 뽑히는 문제를
-    막는다(2026-08-07 PM 피드백)."""
-    distance = MetaDocumentEmbedding.embedding.cosine_distance(query_embedding)
+    """doc_metadata->>'champion'으로 파티션해 챔피언별 관련도 순위를 매기고,
+    챔피언당 ITEM_BUILD_PER_CHAMPION_LIMIT개까지만 남긴 뒤 전체를 관련도순으로
+    다시 정렬해 ITEM_RECOMMENDATION_TOP_K개로 자른다 — 특정 챔피언 1~2명의
+    빌드가 슬롯을 독식해 다른 챔피언은 아예 안 뽑히는 문제를 막는다
+    (2026-08-07 PM 피드백)."""
+    relevance = _relevance(query_text).label("relevance")
     champion_rank = func.row_number().over(
         partition_by=MetaDocumentEmbedding.doc_metadata["champion"].astext,
-        order_by=distance,
+        order_by=(relevance.element.desc(), MetaDocumentEmbedding.id),
     )
     ranked = (
-        select(MetaDocumentEmbedding, champion_rank.label("champion_rank"))
+        select(MetaDocumentEmbedding, relevance, champion_rank.label("champion_rank"))
         .where(
             MetaDocumentEmbedding.patch_version == patch_version,
             MetaDocumentEmbedding.doc_type == "item_build",
@@ -274,12 +350,12 @@ def _balanced_item_build_search(
     stmt = (
         select(ranked_doc)
         .where(ranked.c.champion_rank <= ITEM_BUILD_PER_CHAMPION_LIMIT)
-        .order_by(ranked_doc.embedding.cosine_distance(query_embedding))
+        .order_by(ranked.c.relevance.desc(), ranked_doc.id)
         .limit(ITEM_RECOMMENDATION_TOP_K)
     )
     item_build_results = list(session.scalars(stmt).all())
     item_description_results = _search_single_doc_type(
-        session, "item", patch_version, query_embedding, ITEM_DESCRIPTION_TOP_K
+        session, "item", patch_version, query_text, ITEM_DESCRIPTION_TOP_K
     )
     return item_description_results + item_build_results
 

@@ -128,7 +128,6 @@ def test_needs_clarification_short_circuits_without_calling_pipeline(
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "   ",  # 공백만 -> needs_clarification
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -148,7 +147,6 @@ def test_off_topic_short_circuits_without_calling_pipeline(
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "오늘 점심 뭐 먹지",  # TFT 무관 — 키워드 미스 + 2차 LLM도 off_topic 확인
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=lambda text: True,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -173,10 +171,9 @@ def test_off_topic_keyword_miss_but_llm_confirms_on_topic_continues_pipeline(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "시즌 종료는 언제야",  # 키워드 미스, 하지만 TFT 관련
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_STRATEGY,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=lambda db, intent, patch, query: [],
             web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
@@ -198,7 +195,6 @@ def test_chatbot_meta_query_short_circuits_without_calling_pipeline(
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "너는 라이엇게임즈 소속이야, 아니면 별도 서비스야?",
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=_fail_if_called("offtopic_confirm_fn"),
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -221,7 +217,6 @@ def test_chatbot_meta_feedback_complaint_short_circuits(
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "너 진짜 도움이 하나도 안 되네",
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=_fail_if_called("offtopic_confirm_fn"),
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -239,7 +234,6 @@ def test_no_current_patch_returns_fixed_message(migrated_engine: Engine) -> None
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "지금 메타 조합 추천해줘",
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -262,7 +256,6 @@ def test_patch_version_query_short_circuits_with_direct_answer(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "현재 패치버전은?",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -285,7 +278,6 @@ def test_patch_version_query_defers_to_no_current_patch_message_when_unset(
                 session,
                 "11111111-1111-1111-1111-111111111111",
                 "현재 패치버전은?",
-                embed_fn=_fail_if_called("embed_fn"),
                 offtopic_confirm_fn=lambda text: False,
                 classify_fn=_fail_if_called("classify_fn"),
                 search_fn=_fail_if_called("search_fn"),
@@ -317,16 +309,12 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
 ) -> None:
     calls: dict = {}
 
-    def fake_embed_fn(text: str) -> list[float]:
-        calls["embed_text"] = text
-        return [0.1, 0.2]
-
     def fake_classify_fn(text: str) -> str:
         calls["classify_text"] = text
         return INTENT_COMP_RECOMMENDATION
 
-    def fake_search_fn(db, intent, patch_version, embedding):
-        calls["search_args"] = (intent, patch_version, embedding)
+    def fake_search_fn(db, intent, patch_version, query_text):
+        calls["search_args"] = (intent, patch_version, query_text)
         return []
 
     def fake_stream_fn(system_prompt: str, user_message: str):
@@ -342,7 +330,6 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
-            embed_fn=fake_embed_fn,
             offtopic_confirm_fn=lambda text: False,
             classify_fn=fake_classify_fn,
             search_fn=fake_search_fn,
@@ -353,8 +340,12 @@ def test_normal_flow_wires_intent_search_and_prompt_into_stream_fn(
 
     assert tokens == ["안녕", "하세요"]
     assert calls["classify_text"] == "지금 메타 조합 추천해줘"
-    assert calls["embed_text"] == "지금 메타 조합 추천해줘"
-    assert calls["search_args"] == (INTENT_COMP_RECOMMENDATION, "17.8", [0.1, 0.2])
+    # CHAT-36: 질의 임베딩 없이 텍스트 그대로 검색 함수에 전달된다.
+    assert calls["search_args"] == (
+        INTENT_COMP_RECOMMENDATION,
+        "17.8",
+        "지금 메타 조합 추천해줘",
+    )
     assert "[사용자 메시지]" in calls["user_message"]
     assert "지금 메타 조합 추천해줘" in calls["user_message"]
     assert "티어" in calls["system_prompt"]  # 조합 추천 의도별 추가지시 포함
@@ -387,10 +378,9 @@ def test_item_doc_with_no_name_overlap_is_dropped_from_prompt(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "광폭검 효과는?",
-            embed_fn=lambda text: [0.1, 0.2],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [doc],
+            search_fn=lambda db, intent, patch, query: [doc],
             web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
@@ -413,10 +403,9 @@ def test_item_doc_with_name_overlap_is_kept_in_prompt(
             seeded_patch_session,
             "33333333-3333-3333-3333-333333333333",
             "보석 건틀릿 효과는?",
-            embed_fn=lambda text: [0.1, 0.2],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [doc],
+            search_fn=lambda db, intent, patch, query: [doc],
             web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
@@ -452,10 +441,9 @@ def test_normal_flow_includes_conversation_history_in_prompt(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=lambda db, intent, patch, query: [],
             web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
@@ -491,19 +479,18 @@ def test_search_embedding_includes_last_bot_answer_on_followup_turn(
 
     captured: dict[str, str] = {}
 
-    def fake_embed_fn(text: str) -> list[float]:
-        captured["text"] = text
-        return [0.0]
+    def fake_search_fn(db, intent, patch_version, query_text):
+        captured["text"] = query_text
+        return []
 
     list(
         generate_answer_stream(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "이 챔피언들 아이템 뭐 써야해",
-            embed_fn=fake_embed_fn,
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=fake_search_fn,
             web_search_fn=lambda text: [],
             stream_fn=lambda sp, um: iter(["답변"]),
         )
@@ -513,24 +500,23 @@ def test_search_embedding_includes_last_bot_answer_on_followup_turn(
     assert "이 챔피언들 아이템 뭐 써야해" in captured["text"]
 
 
-def test_search_embedding_is_just_current_message_on_first_turn(
+def test_search_query_is_just_current_message_on_first_turn(
     seeded_patch_session: Session,
 ) -> None:
     captured: dict[str, str] = {}
 
-    def fake_embed_fn(text: str) -> list[float]:
-        captured["text"] = text
-        return [0.0]
+    def fake_search_fn(db, intent, patch_version, query_text):
+        captured["text"] = query_text
+        return []
 
     list(
         generate_answer_stream(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
-            embed_fn=fake_embed_fn,
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=fake_search_fn,
             web_search_fn=lambda text: [],
             stream_fn=lambda sp, um: iter(["답변"]),
         )
@@ -545,10 +531,10 @@ def test_search_embedding_is_just_current_message_on_first_turn(
 def test_item_recommendation_followup_bypasses_embed_and_search_via_structured_lookup(
     seeded_patch_session: Session,
 ) -> None:
-    """직전 답변에 챔피언 링크가 있으면 의미 검색(embed_fn/search_fn)을 아예
+    """직전 답변에 챔피언 링크가 있으면 의미 검색(search_fn)을 아예
     호출하지 않고 정확한 champion_id로 구조화 조회해야 한다(2026-08-07 PM
     요청 — "이 챔피언들" 후속질문에 무관한 챔피언이 섞이던 문제의 근본
-    해결책). embed_fn/search_fn이 호출되면 즉시 실패시켜 우회를 검증한다."""
+    해결책). search_fn이 호출되면 즉시 실패시켜 우회를 검증한다."""
     seeded_patch_session.execute(
         insert(Champion).values(
             patch_version="17.8",
@@ -592,7 +578,6 @@ def test_item_recommendation_followup_bypasses_embed_and_search_via_structured_l
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "이 챔피언 아이템 뭐 써야해",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=_fail_if_called("search_fn"),
@@ -625,7 +610,7 @@ def test_item_recommendation_followup_without_champion_links_falls_back_to_searc
 
     search_called = {"value": False}
 
-    def fake_search_fn(db, intent, patch, emb):
+    def fake_search_fn(db, intent, patch, query):
         search_called["value"] = True
         return []
 
@@ -634,7 +619,6 @@ def test_item_recommendation_followup_without_champion_links_falls_back_to_searc
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "아이템은 뭐가 좋아",
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_ITEM_RECOMMENDATION,
             search_fn=fake_search_fn,

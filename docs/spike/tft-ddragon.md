@@ -44,3 +44,18 @@ DATA-09(ID-이름 매핑 갱신 로직) 착수 전에 이 문서를 먼저 참�
 - 이 키 형식(`TFT17_XXX`)이 **Community Dragon 기반으로 이미 채워둔 `champions.riot_champion_id`와 정확히 동일**함을 확인(DATA-09가 그대로 유효).
 - **그래도 데이터 소스를 바꾸지 않기로 함**: 이미 Community Dragon으로 채운 데이터가 실사용 중이고(comp_champions.champion_id 86/86, recommended_items 아이템 ID 29/29 전부 정상 매칭 확인), 공식 Data Dragon 전환은 이점 대비 리스크(버전 넘버링이 TFT 세트와 무관해 "몇 버전을 언제 갱신할지"를 새로 설계해야 함)가 커서 지금 굳이 바꿀 이유가 없다고 판단. 다만 향후 Community Dragon 가용성 문제가 생기면 대체 소스로 이 URL 패턴을 우선 시도할 것.
 - Set 18(2026-08-12) 런칭 이후 재확인할 때도 이 URL 패턴(`tft-champion.json` 등)을 함께 확인하는 걸 권장.
+
+## 추가 조사(2026-08-27, DATA-24 사고 후속) — 대체 소스 검토, PM 결정: 현재 상태(CDragon 대기) 유지
+
+DATA-24(패치 18.1 자동 감지 사고, 진행현황.md 2026-08-26 참고) 이후 PM이 "op.gg엔 Set 18 데이터가 있는데 CDragon엔 없을 때 `/latest/`·`/pbe/` 등 다른 경로로 임시 대체했다가 정식 경로가 채워지면 자동 복귀할 수 있는지" 문의해 실측 조사함.
+
+**확인된 사실**:
+
+1. **`raw.communitydragon.org/pbe/cdragon/tft/{lang}.json`은 도움이 안 됨** — 실호출 결과 `/latest/`와 완전히 동일하게 Set 18 항목(`setData[18]`, mutator `TFTSet18`)이 19개 엔티티 중 실챔피언 2명(`DA_18_Alune`/`DA_18_Kobuko`, `traits` 존재 여부로 판별)뿐. PBE가 먼저 업데이트되는 경우가 흔하지만 이번엔 아니었음.
+2. **op.gg는 이미 완전히 전환됨**(2026-08-26→27 사이, 어제 조사 때는 구 `TFT17_` 코드였음) — `list_item_combinations()` `version="18.1"`/`set=18`, `list_meta_decks()` 유닛 코드가 전부 `DA_18_*`(예: `DA_18_Ahri`, `DA_18_Xayah`, `DA_18_Ornn`, `DA_18_Draven`)로 실챔피언을 가리킴.
+3. **공식 Riot Data Dragon(`ddragon.leagueoflegends.com/cdn/{version}/data/{locale}/tft-champion.json`, 2026-08-04 정정 항목 참고)에는 Set 18 실챔피언 64명이 이미 있음** — `id` 필드가 op.gg 코드(`DA_18_Ahri` 등)와 정확히 일치, `name`(로컬라이즈)·`cost` 포함. 그러나 이 소스만으로는 부족:
+   - **같은 버전의 `tft-trait.json`엔 Set 18 특성이 0개**(TFTSet18 관련 키 자체가 없음) — 반대로 CDragon `setData[18].traits`엔 이미 특성 36개가 채워져 있음(`DA_18_Elderwood`/`DA_18_LuxUniqueTrait` 등). 즉 **두 소스가 서로 다른 절반만 완성돼 있어** 챔피언은 DDragon, 특성은 CDragon으로 섞어야 함.
+   - **챔피언 이미지가 개별 파일이 아니라 스프라이트시트**(`image: {sprite: "tft-champion9.png", x, y, w, h}`) — `img/tft-champion/{id}.png` 형태 개별 URL은 전부 403 확인. 지금의 "URL 하나를 `square_icon_url`에 그대로 저장 → `next/image`로 렌더링" 방식이 안 통하고, 프론트엔드에 스프라이트 크롭 로직(CSS background-position 등)을 새로 추가해야 함.
+4. **"매일 체크 후 정식 소스로 자동 복귀" 자체는 설계상 거의 공짜** — 매 배치 실행마다 1차 소스(CDragon)를 먼저 시도하고 `validate_champion_collection()`(DATA-24)이 부족하다고 판단할 때만 대체 소스로 폴백하게 만들면, CDragon이 나중에 채워지는 순간 1차 시도가 그냥 통과되며 자동으로 원복됨 — 별도의 "현재 어느 소스를 쓰는지" 상태 추적이 필요 없는 구조.
+
+**PM 결정(2026-08-27)**: 위 다중 소스 블렌딩(DDragon 챔피언 + CDragon 특성) + 프론트엔드 스프라이트 크롭까지는 작업량이 상당하다고 판단해 **지금 당장 진행하지 않고, DATA-24 가드가 안전하게 대기하는 현재 상태를 유지**하기로 함. Community Dragon이 Set 18 챔피언 데이터를 채우면 자동 패치 감지가 그대로 통과되므로 추가 조치 불필요. 이 대체 소스 블렌딩을 실제로 하기로 결정하면, 새 스파이크/TASK로 스코핑할 것(이 문서를 먼저 참고).

@@ -19,11 +19,11 @@
 | `champion_item_builds` | id, champion_id, patch_version, item_combination(jsonb), play_rate, avg_place, win_rate | 챔피언별 아이템 빌드 |
 | `match_analyses` | id, match_id, puuid, patch_version, comp_deviation, item_concentration, augment_synergy, matched_comp_id(FK comps.id, nullable), coaching_text, created_at | 사후 패인 분석 결과 캐시. 동일 match_id+puuid 재요청 시 재사용(PGA-03). matched_comp_id는 매칭되는 메타 조합이 없을 수 있어 nullable(DATA-03에서 확정) |
 
-## 벡터 DB (pgvector)
+## 검색 문서 (CHAT-36부터 pg_trgm 텍스트 검색, 이전엔 pgvector)
 
 | 테이블 | 주요 컬럼 | 설명 |
 |---|---|---|
-| `meta_document_embeddings` | id, patch_version, doc_type(comp/augment/item_build/playstyle), source_table, source_id, content_text, embedding(vector 1024), metadata(jsonb) | BGE-M3 임베딩. HNSW(vector_cosine_ops, m=16/ef_construction=64) 인덱스 + (patch_version,doc_type) btree 복합 인덱스. ivfflat 사용 금지(재빌드 필요, 패치 배치 구조와 불일치) |
+| `meta_document_embeddings` | id, patch_version, doc_type(comp/playstyle/augment/item/item_build/champion), source_table, source_id, content_text, embedding(vector 1024, **nullable**), metadata(jsonb) | 챗봇 RAG 검색 문서. **CHAT-36(2026-10-18)부터 embedding은 항상 NULL** — HF 무료 크레딧 폐지로 BGE-M3 임베딩을 없애고, 검색은 `pg_trgm`의 `word_similarity`로 metadata 이름 키(name/champion/champions/items)와 content_text를 비교(`backend/services/hybrid_search.py`). 이전 패치의 벡터 값과 HNSW 인덱스는 이력 보존용으로만 남음. (patch_version,doc_type) btree 복합 인덱스 |
 
 ## 로그 / KPI 테이블
 
@@ -41,4 +41,4 @@
 
 - 모든 레코드에 `patch_version` 태깅 — 구버전 데이터 혼입 방지
 - `items`/`augments`의 `riot_item_id`/`riot_augment_id`는 Match-V1 원본 키 조인용 필수 컬럼(없으면 PGA-05 아이템 집중도 계산 자체가 불가)
-- `patches.is_current` 전환은 6개 op.gg 도구 호출 + 임베딩 생성이 전부 성공한 마지막 순간에만(DATA-13)
+- `patches.is_current` 전환은 6개 op.gg 도구 호출 + 검색 문서 적재(CHAT-36 이전엔 임베딩 생성)가 전부 성공한 마지막 순간에만(DATA-13)

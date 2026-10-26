@@ -126,7 +126,6 @@ def test_first_turn_cache_hit_skips_pipeline_entirely(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -161,7 +160,6 @@ def test_first_turn_cache_hit_still_records_chat_log(
             seeded_patch_session,
             session_id,
             "지금 메타 조합 추천해줘",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -201,7 +199,6 @@ def test_first_turn_cache_hit_enables_context_on_next_turn(
             seeded_patch_session,
             session_id,
             "지금 메타 조합 추천해줘",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -210,29 +207,28 @@ def test_first_turn_cache_hit_enables_context_on_next_turn(
         )
     )
 
-    calls = {"embed_called_with": None}
+    calls = {"search_called_with": None}
 
-    def fake_embed_fn(text: str) -> list[float]:
-        calls["embed_called_with"] = text
-        return [0.0]
+    def fake_search_fn(db, intent, patch_version, query_text):
+        calls["search_called_with"] = query_text
+        return []
 
     list(
         generate_answer_stream(
             seeded_patch_session,
             session_id,
             "그 조합 더 자세히 알려줘",
-            embed_fn=fake_embed_fn,
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=fake_search_fn,
             web_search_fn=lambda text: [],
             stream_fn=lambda system_prompt, user_message: iter(["후속 답변"]),
         )
     )
 
-    # 직전(캐시 hit) 답변이 임베딩 입력에 섞여 들어갔어야 함(문맥 인지 검색)
-    assert calls["embed_called_with"] is not None
-    assert "캐시된 답변입니다" in calls["embed_called_with"]
+    # 직전(캐시 hit) 답변이 검색 질의에 섞여 들어갔어야 함(문맥 인지 검색)
+    assert calls["search_called_with"] is not None
+    assert "캐시된 답변입니다" in calls["search_called_with"]
 
 
 def test_first_turn_cache_hit_with_legacy_entry_skips_logging(
@@ -251,7 +247,6 @@ def test_first_turn_cache_hit_with_legacy_entry_skips_logging(
             seeded_patch_session,
             session_id,
             "지금 메타 조합 추천해줘",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=_fail_if_called("classify_fn"),
             search_fn=_fail_if_called("search_fn"),
@@ -278,13 +273,12 @@ def test_first_turn_cache_miss_generates_and_stores(
             seeded_patch_session,
             session_id,
             "지금 메타 조합 추천해줘",
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
             # retrieved_docs가 비어 있으면 2026-08-07 변경으로 캐시되지 않으므로
             # (근거 없는 답변은 후속질문 무의미 문제 재발 방지), 이 테스트가
             # 검증하려는 "정상 캐시 저장" 시나리오에는 문서가 하나 이상 있어야 함.
-            search_fn=lambda db, intent, patch, emb: [MetaDocumentEmbedding()],
+            search_fn=lambda db, intent, patch, query: [MetaDocumentEmbedding()],
             web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )
@@ -311,10 +305,9 @@ def test_groq_fallback_message_is_not_cached(seeded_patch_session: Session) -> N
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "지금 메타 조합 추천해줘",
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=lambda db, intent, patch, query: [],
             web_search_fn=lambda text: [],
             stream_fn=always_failing_stream_fn,
         )
@@ -362,10 +355,9 @@ def test_subsequent_turn_ignores_cache_even_if_entry_exists(
             seeded_patch_session,
             session_id,
             "그 조합 더 알려줘",
-            embed_fn=lambda text: [0.0],
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_COMP_RECOMMENDATION,
-            search_fn=lambda db, intent, patch, emb: [],
+            search_fn=lambda db, intent, patch, query: [],
             web_search_fn=lambda text: [],
             stream_fn=fake_stream_fn,
         )

@@ -1,6 +1,6 @@
 """CHAT-27 pytest: 6번째 의도(general_rules) 분류, 프롬프트 조립,
 generate_answer_stream의 general_rules 분기 배선 확인. 이 경로는 외부 API도
-내부 RAG 검색도 쓰지 않는 유일한 의도라(LLM 일반 지식만으로 답함), embed_fn/
+내부 RAG 검색도 쓰지 않는 유일한 의도라(LLM 일반 지식만으로 답함),
 search_fn/web_search_fn이 전혀 호출되지 않는지가 핵심 검증 대상이다."""
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ def seeded_patch_session(migrated_engine: Engine) -> Session:
 def test_general_rules_skips_internal_rag_and_web_search(
     seeded_patch_session: Session,
 ) -> None:
-    """embed_fn/search_fn(CHAT-02 내부 RAG)도 web_search_fn(CHAT-17)도 전혀
+    """search_fn(CHAT-02 내부 RAG)도 web_search_fn(CHAT-17)도 전혀
     호출되지 않고, stream_fn만으로 답하는지 확인 — 6개 의도 중 유일하게
     근거 검색 자체가 없는 경로임을 검증한다."""
 
@@ -171,7 +171,6 @@ def test_general_rules_skips_internal_rag_and_web_search(
             seeded_patch_session,
             "11111111-1111-1111-1111-111111111111",
             "아이템은 어떻게 조합하나요?",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_RULES,
             search_fn=_fail_if_called("search_fn"),
@@ -194,7 +193,6 @@ def test_general_rules_records_chat_log_with_empty_retrieved_docs(
             seeded_patch_session,
             session_id,
             "성급이 오르면 스킬도 강해지나요?",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_RULES,
             search_fn=_fail_if_called("search_fn"),
@@ -225,7 +223,6 @@ def test_general_rules_strips_internal_doc_marker_leak(
             seeded_patch_session,
             "33333333-3333-3333-3333-333333333333",
             "성급이 오르면 스킬도 강해지나요?",
-            embed_fn=_fail_if_called("embed_fn"),
             offtopic_confirm_fn=lambda text: False,
             classify_fn=lambda text: INTENT_GENERAL_RULES,
             search_fn=_fail_if_called("search_fn"),

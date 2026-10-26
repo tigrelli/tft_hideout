@@ -1,20 +1,24 @@
 """CHAT-02 pytest(WBS 테스트 요구사항: 의도별 SQL 필터 조건 반영 여부,
-mock pgvector top-k 결과 병합 확인). HF Inference API는 mock으로 대체
-(policies.md 10.2/11, DATA-11과 동일 정책)."""
+top-k 결과 병합 확인).
+
+CHAT-36(2026-10-18): 검색이 pgvector 코사인 거리에서 pg_trgm 텍스트 유사도로
+바뀌어(HF 무료 크레딧 폐지), 기존 벡터 기반 테스트를 같은 의도의 텍스트 기반
+테스트로 옮겼다 — "질의 벡터와 가까움/멂"은 "질의에 문서 이름이 있음/없음"으로
+표현한다. 시드 문서는 실제 배치처럼 embedding 없이(NULL) 넣는다."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
-import httpx
 import pytest
 from sqlalchemy import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db.models import EMBEDDING_DIM, Champion, MetaDocumentEmbedding, Patch
-from services.embedding_client import EmbeddingError, HuggingFaceEmbeddingClient
+from db.models import Champion, MetaDocumentEmbedding, Patch
 from services.hybrid_search import (
+    ITEM_BUILD_PER_CHAMPION_LIMIT,
     filter_by_name_overlap,
     hybrid_search,
     lookup_item_builds_by_champion_ids,
@@ -27,74 +31,32 @@ from services.intent_classification import (
 )
 
 
-def _one_hot(dim: int, index: int, value: float = 1.0) -> list[float]:
-    vec = [0.0] * dim
-    vec[index] = value
-    return vec
-
-
-# ---- HuggingFaceEmbeddingClient(embed_query 용) ----------------------------------
-
-
-def test_embed_batch_returns_vectors_from_mock_transport() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("Authorization") == "Bearer fake-key"
-        return httpx.Response(200, json=[_one_hot(EMBEDDING_DIM, 0)])
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key", transport=httpx.MockTransport(handler)
+def _add_doc(
+    session: Session,
+    doc_type: str,
+    source_id: int,
+    content_text: str,
+    metadata: dict[str, Any],
+    patch_version: str = "17.8",
+) -> None:
+    session.execute(
+        insert(MetaDocumentEmbedding).values(
+            patch_version=patch_version,
+            doc_type=doc_type,
+            source_table=f"{doc_type}s",
+            source_id=source_id,
+            content_text=content_text,
+            doc_metadata=metadata,
+        )
     )
-    vectors = client.embed_batch(["증강체 추천해줘"])
-
-    assert len(vectors) == 1
-    assert len(vectors[0]) == EMBEDDING_DIM
 
 
-def test_embed_one_returns_single_vector() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[_one_hot(EMBEDDING_DIM, 3)])
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key", transport=httpx.MockTransport(handler)
-    )
-    assert client.embed_one("텍스트") == _one_hot(EMBEDDING_DIM, 3)
+def _search(engine: Engine, intent: str, query: str, **kwargs: Any) -> list:
+    with Session(engine) as session:
+        return hybrid_search(session, intent, "17.8", query, **kwargs)
 
 
-def test_embed_batch_retries_on_503_cold_start_then_succeeds() -> None:
-    attempts = {"n": 0}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        attempts["n"] += 1
-        if attempts["n"] == 1:
-            return httpx.Response(503, json={"error": "loading"})
-        return httpx.Response(200, json=[_one_hot(EMBEDDING_DIM, 0)])
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key",
-        transport=httpx.MockTransport(handler),
-        retry_backoff_seconds=0,
-    )
-    vectors = client.embed_batch(["텍스트"])
-
-    assert attempts["n"] == 2
-    assert vectors == [_one_hot(EMBEDDING_DIM, 0)]
-
-
-def test_embed_batch_raises_after_exhausting_retries() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, json={"error": "loading"})
-
-    client = HuggingFaceEmbeddingClient(
-        api_key="fake-key",
-        transport=httpx.MockTransport(handler),
-        max_retries=1,
-        retry_backoff_seconds=0,
-    )
-    with pytest.raises(EmbeddingError):
-        client.embed_batch(["텍스트"])
-
-
-# ---- hybrid_search: 의도별 SQL 필터 + pgvector top-k -----------------------------
+# ---- hybrid_search: 의도별 SQL 필터 + 관련도 top-k -------------------------------
 
 
 @pytest.fixture
@@ -120,30 +82,66 @@ def seeded_docs(migrated_engine: Engine) -> Engine:
         )
         session.commit()
 
-        # doc_type별 1개씩 + item_build은 거리가 다른 2개(top-k 정렬 검증용)
+        # doc_type별 1개씩 + item_build은 챔피언이 다른 2개(정렬 검증용).
         # source_id는 doc_type 내에서만 의미 있는 값이라 겹쳐도 무방(실제 스키마의
-        # UNIQUE 제약은 (patch_version, doc_type, source_table, source_id))
-        docs = [
-            ("17.8", "comp", 1, _one_hot(EMBEDDING_DIM, 0, 1.0)),
-            ("17.8", "playstyle", 1, _one_hot(EMBEDDING_DIM, 0, 0.9)),
-            ("17.8", "augment", 1, _one_hot(EMBEDDING_DIM, 0, 1.0)),
-            ("17.8", "item_build", 1, _one_hot(EMBEDDING_DIM, 0, 1.0)),  # 가장 가까움
-            ("17.8", "item_build", 2, _one_hot(EMBEDDING_DIM, 1, 1.0)),  # 직교(더 멂)
-            # 이전 패치 문서 — patch_version 필터로 제외돼야 함
-            ("17.7", "item_build", 3, _one_hot(EMBEDDING_DIM, 0, 1.0)),
-        ]
-        for patch_version, doc_type, source_id, vector in docs:
-            session.execute(
-                insert(MetaDocumentEmbedding).values(
-                    patch_version=patch_version,
-                    doc_type=doc_type,
-                    source_table=f"{doc_type}s",
-                    source_id=source_id,
-                    content_text=f"{doc_type} mock 문서 {source_id}",
-                    embedding=vector,
-                    doc_metadata={},
-                )
-            )
+        # UNIQUE 제약은 (patch_version, doc_type, source_table, source_id)).
+        _add_doc(
+            session,
+            "comp",
+            1,
+            "리롤 요네 조합(티어 A): 평균 등수 4.10. 구성: 요네(캐리), 신짜오.",
+            {
+                "name": "리롤 요네",
+                "tier_rank": "A",
+                "is_active": True,
+                "champions": ["요네", "신짜오"],
+            },
+        )
+        _add_doc(
+            session,
+            "playstyle",
+            1,
+            "리롤 요네 조합 플레이 스타일: 8레벨 리롤",
+            {"name": "리롤 요네", "is_active": True, "champions": ["요네", "신짜오"]},
+        )
+        _add_doc(
+            session,
+            "augment",
+            1,
+            "힘의 마법공학(gold 등급) 증강체: 공격력이 증가합니다.",
+            {"name": "힘의 마법공학", "tier": "gold"},
+        )
+        _add_doc(
+            session,
+            "item_build",
+            1,
+            "요네 아이템 빌드: 무한의 대검, 피바라기. 승률 20.0%",
+            {
+                "champion": "요네",
+                "champion_id": 1,
+                "items": ["무한의 대검", "피바라기"],
+            },
+        )
+        _add_doc(
+            session,
+            "item_build",
+            2,
+            "신짜오 아이템 빌드: 가시 갑옷, 워모그의 갑옷. 승률 15.0%",
+            {
+                "champion": "신짜오",
+                "champion_id": 2,
+                "items": ["가시 갑옷", "워모그의 갑옷"],
+            },
+        )
+        # 이전 패치 문서 — patch_version 필터로 제외돼야 함
+        _add_doc(
+            session,
+            "item_build",
+            3,
+            "요네 아이템 빌드: 무한의 대검. 승률 30.0%",
+            {"champion": "요네", "champion_id": 3, "items": ["무한의 대검"]},
+            patch_version="17.7",
+        )
         session.commit()
     return migrated_engine
 
@@ -151,83 +149,62 @@ def seeded_docs(migrated_engine: Engine) -> Engine:
 def test_comp_recommendation_only_searches_comp_and_playstyle(
     seeded_docs: Engine,
 ) -> None:
-    with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_COMP_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_COMP_RECOMMENDATION, "요즘 조합 추천해줘")
     assert {r.doc_type for r in results} == {"comp", "playstyle"}
 
 
 def test_item_recommendation_only_searches_item_build(seeded_docs: Engine) -> None:
-    with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_ITEM_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_ITEM_RECOMMENDATION, "요네 아이템 뭐 가요?")
     assert {r.doc_type for r in results} == {"item_build"}
     # patch_version 필터: 17.7의 item_build(source_id=3)는 제외돼야 함
     assert all(r.patch_version == "17.8" for r in results)
+
+
+def test_search_works_without_any_embedding_vectors(seeded_docs: Engine) -> None:
+    """CHAT-36 핵심: 시드 문서 전부 embedding이 NULL인데도(배치가 더 이상 벡터를
+    만들지 않음) 검색이 정상 동작해야 한다."""
+    with Session(seeded_docs) as session:
+        assert all(
+            doc.embedding is None for doc in session.query(MetaDocumentEmbedding).all()
+        )
+    results = _search(seeded_docs, INTENT_AUGMENT_RECOMMENDATION, "힘의 마법공학 어때?")
+    assert [r.doc_metadata["name"] for r in results] == ["힘의 마법공학"]
 
 
 def test_item_recommendation_caps_builds_per_champion_for_breadth(
     seeded_docs: Engine,
 ) -> None:
     """2026-08-07 PM 피드백: 여러 챔피언의 아이템 빌드를 한꺼번에 물어보는
-    후속질문("이 챔피언들을 조합에 넣을 때...")에서, 순수 거리순 top-k만
-    쓰면 가장 가까운 챔피언 1명의 빌드만 여러 개 뽑히고 나머지 챔피언은
-    아예 안 뽑히는 문제가 실제로 확인됨(5코스트 9명 중 1명만 답변에 등장).
-    챔피언별로 캡을 걸어 여러 챔피언이 함께 뽑히는지 검증한다."""
+    후속질문("이 챔피언들을 조합에 넣을 때...")에서, 순수 관련도순 top-k만
+    쓰면 한 챔피언의 빌드만 여러 개 뽑히고 나머지 챔피언은 아예 안 뽑히는
+    문제가 실제로 확인됨(5코스트 9명 중 1명만 답변에 등장). 챔피언별로 캡을
+    걸어 여러 챔피언이 함께 뽑히는지 검증한다."""
     with Session(seeded_docs) as session:
-        # 챔피언A: 쿼리와 완전히 같은 방향(최단거리)인 빌드 5개 — 캡 없으면
-        # top-k를 전부 독식함.
+        # 가렌: 빌드 5개 — 캡이 없으면 id 순으로 먼저 다 뽑힘.
         for i in range(5):
-            session.execute(
-                insert(MetaDocumentEmbedding).values(
-                    patch_version="17.8",
-                    doc_type="item_build",
-                    source_table="champion_item_builds",
-                    source_id=100 + i,
-                    content_text=f"챔피언A 빌드 {i}",
-                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                    doc_metadata={"champion": "챔피언A"},
-                )
+            _add_doc(
+                session,
+                "item_build",
+                100 + i,
+                f"가렌 아이템 빌드 {i}",
+                {"champion": "가렌", "items": []},
             )
-        # 챔피언 B/C/D: 약간 먼(직교) 빌드 1개씩 — 캡이 없으면 안 뽑힘.
-        for i, name in enumerate(["챔피언B", "챔피언C", "챔피언D"]):
-            session.execute(
-                insert(MetaDocumentEmbedding).values(
-                    patch_version="17.8",
-                    doc_type="item_build",
-                    source_table="champion_item_builds",
-                    source_id=200 + i,
-                    content_text=f"{name} 빌드",
-                    embedding=_one_hot(EMBEDDING_DIM, i + 1, 1.0),
-                    doc_metadata={"champion": name},
-                )
+        for i, name in enumerate(["럭스", "애쉬", "티모"]):
+            _add_doc(
+                session,
+                "item_build",
+                200 + i,
+                f"{name} 아이템 빌드",
+                {"champion": name, "items": []},
             )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_ITEM_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
-
-    champion_a_count = sum(
-        1 for r in results if r.doc_metadata.get("champion") == "챔피언A"
+    results = _search(
+        seeded_docs, INTENT_ITEM_RECOMMENDATION, "가렌 럭스 애쉬 티모 아이템 추천"
     )
-    champions_in_results = {
-        r.doc_metadata["champion"] for r in results if "champion" in r.doc_metadata
-    }
-
-    assert champion_a_count == 2
-    assert {"챔피언B", "챔피언C", "챔피언D"}.issubset(champions_in_results)
+    champions = [r.doc_metadata.get("champion") for r in results]
+    assert champions.count("가렌") == ITEM_BUILD_PER_CHAMPION_LIMIT
+    assert {"럭스", "애쉬", "티모"}.issubset(set(champions))
 
 
 # CHAT-14: 아이템 효과 자체를 묻는 질문("보석 건틀릿 아이템 효과 알려줘")에
@@ -235,48 +212,33 @@ def test_item_recommendation_caps_builds_per_champion_for_breadth(
 # 기반) 문서도 검색하는지 확인.
 def test_item_recommendation_also_searches_item_doc_type(seeded_docs: Engine) -> None:
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="item",
-                source_table="items",
-                source_id=1,
-                content_text="보석 건틀릿: 치명타 확률이 증가합니다.",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                doc_metadata={"name": "보석 건틀릿"},
-            )
+        _add_doc(
+            session,
+            "item",
+            1,
+            "보석 건틀릿: 치명타 확률이 증가합니다.",
+            {"name": "보석 건틀릿"},
         )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_ITEM_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(
+        seeded_docs, INTENT_ITEM_RECOMMENDATION, "보석 건틀릿 아이템 효과 알려줘"
+    )
     assert "item" in {r.doc_type for r in results}
     assert "item_build" in {r.doc_type for r in results}
 
 
 def test_augment_recommendation_only_searches_augment(seeded_docs: Engine) -> None:
-    with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_AUGMENT_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(
+        seeded_docs, INTENT_AUGMENT_RECOMMENDATION, "힘의 마법공학 증강 어때?"
+    )
     assert {r.doc_type for r in results} == {"augment"}
 
 
 def test_general_strategy_searches_all_doc_types(seeded_docs: Engine) -> None:
-    with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(
+        seeded_docs, INTENT_GENERAL_STRATEGY, "힘의 마법공학 들고 요네 메타 운영법"
+    )
     assert {r.doc_type for r in results} == {
         "comp",
         "playstyle",
@@ -289,26 +251,49 @@ def test_general_strategy_includes_champion_doc_type(seeded_docs: Engine) -> Non
     """2026-08-07 PM 피드백: "3코스트 챔피언은?" 질의가 champion 문서를
     찾을 수 있어야 한다(신규 doc_type)."""
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="champion",
-                source_table="champions",
-                source_id=1,
-                content_text="가짜챔프(3코스트) 챔피언. 특성: 학살자.",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                doc_metadata={"name": "가짜챔프", "cost": 3},
-            )
+        _add_doc(
+            session,
+            "champion",
+            1,
+            "가짜챔프(3코스트) 챔피언. 특성: 학살자.",
+            {"name": "가짜챔프", "cost": 3},
         )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "3코스트 챔피언은?")
     assert "champion" in {r.doc_type for r in results}
+
+
+def test_general_strategy_cost_query_prefers_matching_cost_champions(
+    seeded_docs: Engine,
+) -> None:
+    """CHAT-36: 이름 없이 속성을 묻는 질의("3코스트 챔피언은?")는 본문 점수로
+    정렬된다 — champion 슬롯(GENERAL_STRATEGY_CHAMPION_TOP_K=20)보다 문서가
+    많아도 3코스트 챔피언이 먼저 채워져야 한다."""
+    with Session(seeded_docs) as session:
+        for i in range(25):
+            _add_doc(
+                session,
+                "champion",
+                i,
+                f"이코챔{i}(2코스트) 챔피언. 특성: 수호자.",
+                {"name": f"이코챔{i}", "cost": 2},
+            )
+        for i in range(4):
+            _add_doc(
+                session,
+                "champion",
+                100 + i,
+                f"삼코챔{i}(3코스트) 챔피언. 특성: 학살자.",
+                {"name": f"삼코챔{i}", "cost": 3},
+            )
+        session.commit()
+
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "3코스트 챔피언은?")
+    champion_costs = [
+        r.doc_metadata["cost"] for r in results if r.doc_type == "champion"
+    ]
+    assert champion_costs[:4] == [3, 3, 3, 3]
 
 
 # CHAT-14: "보석 건틀릿 효과가 뭐야?"처럼 "아이템" 키워드 없이 묻는 질문은
@@ -316,207 +301,223 @@ def test_general_strategy_includes_champion_doc_type(seeded_docs: Engine) -> Non
 # classification.py의 키워드 정규식 기준) 여기서도 item 문서를 찾을 수 있어야 함.
 def test_general_strategy_includes_item_doc_type(seeded_docs: Engine) -> None:
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="item",
-                source_table="items",
-                source_id=1,
-                content_text="보석 건틀릿: 치명타 확률이 증가합니다.",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                doc_metadata={"name": "보석 건틀릿"},
-            )
+        _add_doc(
+            session,
+            "item",
+            1,
+            "보석 건틀릿: 치명타 확률이 증가합니다.",
+            {"name": "보석 건틀릿"},
         )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "보석 건틀릿 효과가 뭐야?")
     assert "item" in {r.doc_type for r in results}
 
 
-# ---- CHAT-15: 검색 결과 최소 유사도 신뢰도 임계값(2026-08-09 PM 제보) -------------
+# ---- CHAT-15(→CHAT-36): 검색 결과 최소 관련도 임계값 ------------------------------
 # "죽무 효과는?"처럼 사전에 없는 줄임말이 전혀 다른 아이템('절멸자')으로
-# 오검색된 사례 — item/augment doc_type은 코사인 거리가 임계값(_DOC_TYPE_
-# MAX_DISTANCE)을 넘으면(=너무 멀면) 애초에 후보에서 빠져야 한다. champion/comp는
-# 실측상 정상 케이스도 거리가 멀 수 있어(설계 주석 참고) 의도적으로 임계값을
-# 적용하지 않는다 — 회귀 확인용 테스트도 함께 둔다.
+# 오검색된 사례(2026-08-09 PM 제보) — item/augment doc_type은 질의가 이름으로
+# 지목하지 않으면(관련도 < NAME_HIT_MIN_SCORE) 애초에 후보에서 빠져야 한다.
+# champion/comp는 목록형·일반 추천 질의가 정상이라 의도적으로 임계값을 적용하지
+# 않는다 — 회귀 확인용 테스트도 함께 둔다.
 
 
-def test_item_recommendation_excludes_item_doc_too_far_from_query(
+def _add_unrelated_item(session: Session) -> None:
+    # 본문에 질의와 같은 흔한 단어("효과")가 있어도 이름이 안 겹치면 빠져야 한다
+    # (2026-10-18 실측: "광폭검 효과는?"이 본문 점수만 0.50).
+    _add_doc(
+        session,
+        "item",
+        99,
+        "포악한 절단검: 이 효과는 공격력을 올립니다.",
+        {"name": "포악한 절단검"},
+    )
+
+
+def test_item_recommendation_excludes_item_doc_not_named_in_query(
     seeded_docs: Engine,
 ) -> None:
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="item",
-                source_table="items",
-                source_id=99,
-                content_text="먼 아이템 문서",
-                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),  # 질의와 직교(거리 1.0)
-                doc_metadata={"name": "먼아이템"},
-            )
-        )
+        _add_unrelated_item(session)
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_ITEM_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_ITEM_RECOMMENDATION, "광폭검 효과는?")
     assert "item" not in {r.doc_type for r in results}
-
-
-def test_general_strategy_excludes_item_doc_too_far_from_query(
-    seeded_docs: Engine,
-) -> None:
-    with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="item",
-                source_table="items",
-                source_id=99,
-                content_text="먼 아이템 문서",
-                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
-                doc_metadata={"name": "먼아이템"},
-            )
-        )
-        session.commit()
-
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
-    assert "item" not in {r.doc_type for r in results}
-
-
-def test_augment_recommendation_excludes_augment_doc_too_far_from_query(
-    seeded_docs: Engine,
-) -> None:
-    """base seeded_docs의 augment 문서는 질의와 거리 0(포함돼야 함), 여기서
-    추가하는 문서는 직교(거리 1.0, 제외돼야 함) — 같은 doc_type 안에서
-    가까운/먼 문서가 실제로 갈리는지 확인한다."""
-    with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="augment",
-                source_table="augments",
-                source_id=99,
-                content_text="먼 증강체 문서",
-                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
-                doc_metadata={"name": "먼증강체"},
-            )
-        )
-        session.commit()
-
-        results = hybrid_search(
-            session,
-            INTENT_AUGMENT_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
-    names = {r.doc_metadata.get("name") for r in results}
-    assert "먼증강체" not in names
-    assert len(results) == 1  # base fixture의 가까운 augment 문서 1개만 남음
-
-
-def test_item_recommendation_returns_no_item_docs_when_all_too_far(
-    seeded_docs: Engine,
-) -> None:
-    """item doc_type 후보가 전부 임계값 밖이면 에러 없이 빈 결과여야 한다
-    (item_build 결과는 별개 경로라 영향 없음, 이 경우 전체 흐름은 CHAT-14의
-    "정보 없음" 답변 경로로 자연스럽게 이어진다)."""
-    with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="item",
-                source_table="items",
-                source_id=99,
-                content_text="먼 아이템 문서",
-                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
-                doc_metadata={"name": "먼아이템"},
-            )
-        )
-        session.commit()
-
-        results = hybrid_search(
-            session,
-            INTENT_ITEM_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
     assert results  # item_build 결과는 남아있음(임계값 미적용 doc_type)
+
+
+def test_general_strategy_excludes_item_doc_not_named_in_query(
+    seeded_docs: Engine,
+) -> None:
+    with Session(seeded_docs) as session:
+        _add_unrelated_item(session)
+        session.commit()
+
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "광폭검 효과는?")
     assert "item" not in {r.doc_type for r in results}
 
 
-def test_general_strategy_still_includes_far_champion_doc(
+def test_item_search_rejects_partially_overlapping_other_item_name(
     seeded_docs: Engine,
 ) -> None:
-    """champion doc_type은 CHAT-15 임계값을 의도적으로 적용하지 않는다(실측:
-    정상적인 특정 챔피언 이름 질의도 거리 0.5대라 item의 "나쁜 매칭" 구간과
-    겹침, 위 hybrid_search 모듈 주석 참고) — 먼 champion 문서도 그대로 남아야
-    회귀가 아니다."""
+    """CHAT-36: 글자 일부만 겹치는 다른 아이템("공허 건틀릿", 2026-10-18 실측
+    0.57)은 정답("보석 건틀릿")과 함께 끌려오지 않아야 한다."""
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="champion",
-                source_table="champions",
-                source_id=1,
-                content_text="먼챔프(3코스트) 챔피언. 특성: 학살자.",
-                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),  # 직교(거리 1.0)
-                doc_metadata={"name": "먼챔프", "cost": 3},
-            )
+        _add_doc(session, "item", 1, "보석 건틀릿: 정밀 획득", {"name": "보석 건틀릿"})
+        _add_doc(
+            session, "item", 2, "공허 건틀릿: 최대 체력 저장", {"name": "공허 건틀릿"}
         )
         session.commit()
 
-        results = hybrid_search(
+    results = _search(seeded_docs, INTENT_ITEM_RECOMMENDATION, "보석 건틀릿 효과는?")
+    assert [r.doc_metadata["name"] for r in results if r.doc_type == "item"] == [
+        "보석 건틀릿"
+    ]
+
+
+def test_augment_recommendation_excludes_augment_doc_not_named_in_query(
+    seeded_docs: Engine,
+) -> None:
+    """base seeded_docs의 '힘의 마법공학'은 질의에 이름이 있어 포함, 여기서
+    추가하는 문서는 이름이 없어 제외 — 같은 doc_type 안에서 실제로 갈리는지
+    확인한다."""
+    with Session(seeded_docs) as session:
+        _add_doc(
             session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
+            "augment",
+            99,
+            "동물특공대 지휘관(silver 등급) 증강체: 공격력이 증가합니다.",
+            {"name": "동물특공대 지휘관"},
         )
+        session.commit()
+
+    results = _search(seeded_docs, INTENT_AUGMENT_RECOMMENDATION, "힘의 마법공학 어때?")
+    assert [r.doc_metadata["name"] for r in results] == ["힘의 마법공학"]
+
+
+def test_general_strategy_still_includes_unnamed_champion_doc(
+    seeded_docs: Engine,
+) -> None:
+    """champion doc_type은 임계값을 의도적으로 적용하지 않는다 — 질의와 무관한
+    champion 문서도 그대로 남아야 회귀가 아니다."""
+    with Session(seeded_docs) as session:
+        _add_doc(
+            session,
+            "champion",
+            1,
+            "먼챔프(3코스트) 챔피언. 특성: 학살자.",
+            {"name": "먼챔프", "cost": 3},
+        )
+        session.commit()
+
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "요즘 메타 어때?")
     assert "먼챔프" in {
         r.doc_metadata.get("name") for r in results if r.doc_type == "champion"
     }
 
 
-def test_comp_recommendation_still_includes_far_comp_doc(seeded_docs: Engine) -> None:
-    """comp doc_type도 CHAT-15 임계값을 의도적으로 적용하지 않는다(실측: 특정
-    조합명이 아닌 일반 "메타 추천" 질의가 정상인데도 거리 0.48~0.49로 나옴)."""
+def test_comp_recommendation_still_includes_unnamed_comp_doc(
+    seeded_docs: Engine,
+) -> None:
+    """comp doc_type도 임계값을 의도적으로 적용하지 않는다(특정 조합명이 아닌
+    일반 "메타 추천" 질의가 정상)."""
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=99,
-                content_text="먼 조합 문서",
-                embedding=_one_hot(EMBEDDING_DIM, 5, 1.0),
-                doc_metadata={"name": "먼조합"},
-            )
-        )
+        _add_doc(session, "comp", 99, "먼 조합 문서", {"name": "먼조합"})
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_COMP_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_COMP_RECOMMENDATION, "요즘 메타 조합 추천")
     assert "먼조합" in {
         r.doc_metadata.get("name") for r in results if r.doc_type == "comp"
     }
+
+
+# ---- CHAT-36: 이름 지목 우선(이름 점수) ------------------------------------------
+
+
+def _add_tiered_comps(session: Session) -> None:
+    _add_doc(
+        session,
+        "comp",
+        501,
+        "처형자 아지르 조합(티어 OP). 구성: 아지르(캐리), 베이가.",
+        {
+            "name": "처형자 아지르",
+            "tier_rank": "OP",
+            "is_active": True,
+            "champions": ["아지르", "베이가"],
+        },
+    )
+    _add_doc(
+        session,
+        "comp",
+        502,
+        "달빛 세주아니 조합(티어 C). 구성: 세주아니(캐리), 아리.",
+        {
+            "name": "달빛 세주아니",
+            "tier_rank": "C",
+            "is_active": True,
+            "champions": ["세주아니", "아리"],
+        },
+    )
+
+
+def test_comp_named_in_query_ranks_before_higher_tier_comp(seeded_docs: Engine) -> None:
+    """질의가 조합 이름을 지목하면 티어가 낮아도 그 조합이 먼저 나와야 한다(벡터
+    검색 시절엔 티어가 거리보다 앞서, top_k 밖의 낮은 티어 조합을 물으면 아예
+    안 나올 수 있었음)."""
+    with Session(seeded_docs) as session:
+        _add_tiered_comps(session)
+        session.commit()
+
+    results = _search(
+        seeded_docs, INTENT_COMP_RECOMMENDATION, "달빛 세주아니 조합 알려줘", top_k=1
+    )
+    assert [r.source_id for r in results] == [502]
+
+
+def test_comp_containing_named_champion_ranks_first(seeded_docs: Engine) -> None:
+    """조합 이름이 아니라 구성 챔피언 이름("아리")으로 물어도 그 챔피언이 들어간
+    조합이 먼저 나와야 한다(metadata champions 목록 매칭)."""
+    with Session(seeded_docs) as session:
+        _add_tiered_comps(session)
+        session.commit()
+
+    results = _search(
+        seeded_docs, INTENT_COMP_RECOMMENDATION, "아리 들어가는 조합 추천", top_k=1
+    )
+    assert [r.source_id for r in results] == [502]
+
+
+def test_name_with_korean_particle_still_counts_as_named(seeded_docs: Engine) -> None:
+    """조사가 붙은 이름("아리를")도 이름 지목으로 인정돼야 한다(실측 약 0.67)."""
+    with Session(seeded_docs) as session:
+        _add_tiered_comps(session)
+        session.commit()
+
+    results = _search(
+        seeded_docs, INTENT_COMP_RECOMMENDATION, "아리를 쓰는 조합 추천", top_k=1
+    )
+    assert [r.source_id for r in results] == [502]
+
+
+def test_item_build_matched_by_item_name_in_query(seeded_docs: Engine) -> None:
+    """ "가시 갑옷 누가 써?"처럼 아이템 이름으로 물으면 그 아이템이 들어간 빌드가
+    먼저 나와야 한다(metadata items 목록 매칭)."""
+    results = _search(seeded_docs, INTENT_ITEM_RECOMMENDATION, "가시 갑옷 누가 써?")
+    assert results[0].doc_metadata["champion"] == "신짜오"
+
+
+def test_top_k_orders_by_relevance(seeded_docs: Engine) -> None:
+    results = _search(
+        seeded_docs, INTENT_ITEM_RECOMMENDATION, "신짜오 아이템 추천", top_k=5
+    )
+    # 질의가 지목한 신짜오(source_id=2) 빌드가 요네(source_id=1)보다 먼저
+    assert [r.source_id for r in results] == [2, 1]
+
+
+def test_top_k_limit_is_respected(seeded_docs: Engine) -> None:
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "요즘 메타", top_k=2)
+    assert len(results) == 2
 
 
 # ---- CHAT-15 2차 보정: filter_by_name_overlap() (2026-08-09 PM 검증 중 발견) ------
@@ -563,26 +564,18 @@ def test_general_strategy_champion_allocation_ignores_top_k(
     1명만 뽑힘). top_k=1로 호출해도 15명이 전부 반환되는지 확인한다."""
     with Session(seeded_docs) as session:
         for i in range(15):
-            session.execute(
-                insert(MetaDocumentEmbedding).values(
-                    patch_version="17.8",
-                    doc_type="champion",
-                    source_table="champions",
-                    source_id=i,
-                    content_text=f"챔프{i}(3코스트) 챔피언. 특성: 학살자.",
-                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                    doc_metadata={"name": f"챔프{i}", "cost": 3},
-                )
+            _add_doc(
+                session,
+                "champion",
+                i,
+                f"챔프{i}(3코스트) 챔피언. 특성: 학살자.",
+                {"name": f"챔프{i}", "cost": 3},
             )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=1,
-        )
+    results = _search(
+        seeded_docs, INTENT_GENERAL_STRATEGY, "3코스트 챔피언은?", top_k=1
+    )
     champion_results = [r for r in results if r.doc_type == "champion"]
     assert len(champion_results) == 15
 
@@ -591,86 +584,46 @@ def test_comp_recommendation_does_not_search_champion_doc_type(
     seeded_docs: Engine,
 ) -> None:
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="champion",
-                source_table="champions",
-                source_id=1,
-                content_text="가짜챔프(3코스트) 챔피언. 특성: 학살자.",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                doc_metadata={"name": "가짜챔프", "cost": 3},
-            )
+        _add_doc(
+            session,
+            "champion",
+            1,
+            "가짜챔프(3코스트) 챔피언. 특성: 학살자.",
+            {"name": "가짜챔프", "cost": 3},
         )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_COMP_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(seeded_docs, INTENT_COMP_RECOMMENDATION, "가짜챔프 조합 추천")
     assert "champion" not in {r.doc_type for r in results}
-
-
-def test_top_k_orders_by_cosine_distance_ascending(seeded_docs: Engine) -> None:
-    with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_ITEM_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=5,
-        )
-    # source_id=1(동일 방향)이 source_id=2(직교)보다 먼저 나와야 함
-    assert [r.source_id for r in results] == [1, 2]
-
-
-def test_top_k_limit_is_respected(seeded_docs: Engine) -> None:
-    with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=2,
-        )
-    assert len(results) == 2
 
 
 # ---- general_strategy doc_type 균형 배분(2026-08-07 운영 관측 버그 회귀) ---------
 
 
-def test_general_strategy_guarantees_comp_representation_even_when_augments_are_closer(
+def test_general_strategy_guarantees_comp_representation_even_when_augments_match(
     seeded_docs: Engine,
 ) -> None:
-    """운영에서 재현된 문제: "메타" 같은 추상 질의는 코사인 거리상 augment
-    청크가 comp보다 훨씬 가까울 수 있어, 순수 top-k만 쓰면 comp가 결과에서
-    아예 빠진다(실측: 상위 8개 전부 augment, 최상위 comp는 377개 중 112위).
-    doc_type별 최소 배분으로 comp가 항상 포함되는지 검증한다."""
+    """운영에서 재현된 문제: "메타" 같은 추상 질의에서 augment 청크가 comp보다
+    관련도가 높게 나와, 순수 top-k만 쓰면 comp가 결과에서 아예 빠졌다(실측:
+    상위 8개 전부 augment). doc_type별 최소 배분으로 comp가 항상 포함되는지
+    검증한다 — augment 4개를 전부 질의가 지목해 comp보다 관련도가 높은
+    상황을 만든다."""
     with Session(seeded_docs) as session:
-        # augment 문서를 comp/playstyle과 동일하게 가장 가까운 거리로 4개 추가
-        # 시딩해, 순수 top-5 정렬이라면 comp가 밀려날 수 있는 상황을 재현한다.
-        for i in range(4):
-            session.execute(
-                insert(MetaDocumentEmbedding).values(
-                    patch_version="17.8",
-                    doc_type="augment",
-                    source_table="augments",
-                    source_id=100 + i,
-                    content_text=f"augment mock {i}",
-                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                    doc_metadata={},
-                )
+        for i, name in enumerate(["강철 심장", "강철 의지", "강철 주먹", "강철 방패"]):
+            _add_doc(
+                session,
+                "augment",
+                100 + i,
+                f"{name}(silver 등급) 증강체: 방어력이 증가합니다.",
+                {"name": name},
             )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-        )
+    results = _search(
+        seeded_docs,
+        INTENT_GENERAL_STRATEGY,
+        "강철 심장 강철 의지 강철 주먹 강철 방패 메타",
+    )
     assert "comp" in {r.doc_type for r in results}
 
 
@@ -681,60 +634,43 @@ def test_general_strategy_allocates_remainder_to_earlier_doc_types_first(
     item_build/item)로 나누어떨어지지 않으면, 나머지는 INTENT_DOC_TYPES 순서상
     앞쪽 타입(comp)부터 1개씩 더 배정된다."""
     with Session(seeded_docs) as session:
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=6,
-        )
+        _add_doc(session, "comp", 2, "두번째 조합 문서", {"name": "두번째 조합"})
+        session.commit()
+
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "요즘 메타", top_k=6)
     comp_count = sum(1 for r in results if r.doc_type == "comp")
-    # fixture에는 comp 문서가 1개뿐이라 배정된 2개 중 실제로는 1개만 반환됨
-    assert comp_count == 1
+    playstyle_count = sum(1 for r in results if r.doc_type == "playstyle")
+    # comp는 2개(1+나머지 1) 배정, playstyle은 1개 배정
+    assert comp_count == 2
+    assert playstyle_count == 1
 
 
 # ---- tier_rank 우선순위 정렬(2026-08-07 PM 피드백 회귀) --------------------------
 
 
-def test_comp_recommendation_orders_higher_tier_before_closer_lower_tier(
+def test_comp_recommendation_orders_higher_tier_before_more_relevant_lower_tier(
     seeded_docs: Engine,
 ) -> None:
-    """티어가 1차 정렬 기준이어야 한다 — 코사인 거리가 더 가까운 A티어보다
-    티어가 높은 OP가 항상 먼저 나와야 한다(2026-08-07 PM 피드백: "메타" 질의에
-    A티어만 나오고 OP/S티어 조합이 검색조차 안 됨)."""
+    """이름을 지목하지 않는 일반 질의에서는 티어가 관련도보다 앞선 정렬 기준이어야
+    한다 — 본문이 질의와 더 많이 겹치는 A티어보다 OP가 먼저 나와야 한다
+    (2026-08-07 PM 피드백: "메타" 질의에 A티어만 나오고 OP/S티어 조합이 검색조차
+    안 됨)."""
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=201,
-                content_text="A티어 조합(거리 가까움)",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),  # 쿼리와 동일 방향(최단거리)
-                doc_metadata={"tier_rank": "A"},
-            )
+        _add_doc(
+            session,
+            "comp",
+            201,
+            "요즘 메타 추천 A티어 조합",
+            {"name": "가나다", "tier_rank": "A"},
         )
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=202,
-                content_text="OP티어 조합(거리 멂)",
-                embedding=_one_hot(EMBEDDING_DIM, 1, 1.0),  # 직교(더 먼 거리)
-                doc_metadata={"tier_rank": "OP"},
-            )
+        _add_doc(
+            session, "comp", 202, "OP티어 조합", {"name": "라마바", "tier_rank": "OP"}
         )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_COMP_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=1,
-        )
-    # 거리만 보면 201(A)이 훨씬 가깝지만, 티어가 더 높은 202(OP)가 나와야 함
+    results = _search(
+        seeded_docs, INTENT_COMP_RECOMMENDATION, "요즘 메타 추천", top_k=1
+    )
     assert [r.source_id for r in results] == [202]
 
 
@@ -745,38 +681,24 @@ def test_comp_recommendation_ranks_active_comp_before_inactive_even_if_lower_tie
     seeded_docs: Engine,
 ) -> None:
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=401,
-                content_text="비활성 S티어 조합(거리 가까움)",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                doc_metadata={"tier_rank": "S", "is_active": False},
-            )
+        _add_doc(
+            session,
+            "comp",
+            401,
+            "비활성 S티어 조합",
+            {"name": "옛조합", "tier_rank": "S", "is_active": False},
         )
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=402,
-                content_text="활성 A티어 조합(거리 멂)",
-                embedding=_one_hot(EMBEDDING_DIM, 1, 1.0),
-                doc_metadata={"tier_rank": "A", "is_active": True},
-            )
+        _add_doc(
+            session,
+            "comp",
+            402,
+            "활성 A티어 조합",
+            {"name": "새조합", "tier_rank": "A", "is_active": True},
         )
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_COMP_RECOMMENDATION,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=1,
-        )
-    # 티어(S>A)·거리 모두 401이 유리하지만, 비활성이라 활성인 402가 먼저 나와야 함
+    # 질의가 비활성 조합을 이름으로 지목해도 활성 여부가 먼저다.
+    results = _search(seeded_docs, INTENT_COMP_RECOMMENDATION, "옛조합 알려줘", top_k=1)
     assert [r.source_id for r in results] == [402]
 
 
@@ -785,37 +707,17 @@ def test_general_strategy_balanced_search_orders_comp_allocation_by_tier(
 ) -> None:
     """doc_type 균형 배분(comp 슬롯) 안에서도 티어 우선순위가 적용돼야 한다."""
     with Session(seeded_docs) as session:
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=301,
-                content_text="B티어 조합(거리 가까움)",
-                embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
-                doc_metadata={"tier_rank": "B"},
-            )
+        _add_doc(
+            session,
+            "comp",
+            301,
+            "요즘 메타 B티어 조합",
+            {"name": "가", "tier_rank": "B"},
         )
-        session.execute(
-            insert(MetaDocumentEmbedding).values(
-                patch_version="17.8",
-                doc_type="comp",
-                source_table="comps",
-                source_id=302,
-                content_text="S티어 조합(거리 멂)",
-                embedding=_one_hot(EMBEDDING_DIM, 1, 1.0),
-                doc_metadata={"tier_rank": "S"},
-            )
-        )
+        _add_doc(session, "comp", 302, "S티어 조합", {"name": "나", "tier_rank": "S"})
         session.commit()
 
-        results = hybrid_search(
-            session,
-            INTENT_GENERAL_STRATEGY,
-            "17.8",
-            _one_hot(EMBEDDING_DIM, 0, 1.0),
-            top_k=4,
-        )
+    results = _search(seeded_docs, INTENT_GENERAL_STRATEGY, "요즘 메타", top_k=4)
     comp_results = [r for r in results if r.doc_type == "comp"]
     assert comp_results[0].source_id == 302
 
@@ -869,7 +771,6 @@ def test_lookup_item_builds_by_champion_ids_returns_only_requested_champions(
                     source_table="champion_item_builds",
                     source_id=source_id,
                     content_text=f"{name} 아이템 빌드",
-                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
                     doc_metadata={"champion": name},
                 )
             )
@@ -903,7 +804,6 @@ def test_lookup_item_builds_by_champion_ids_caps_per_champion(
                     source_table="champion_item_builds",
                     source_id=600 + i,
                     content_text=f"바드 아이템 빌드 {i}",
-                    embedding=_one_hot(EMBEDDING_DIM, 0, 1.0),
                     doc_metadata={"champion": "바드"},
                 )
             )

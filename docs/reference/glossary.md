@@ -34,7 +34,7 @@
 |---|---|---|---|
 | 조합 추천 | `comps.is_active`(활성 우선) → `comps.tier_rank`(OP>S>A>B>C) | ✅ `is_active` 1차·`tier_rank` 2차 정렬 기준(tier_rank는 2026-08-07, is_active는 2026-08-12 CHAT-18 추가) | ✅ "티어·평균등수 제시, 상위 3개 압축" + 비활성 조합은 캐비엇 필수(SYSTEM_PROMPT_BASE 11번, CHAT-18) |
 | 일반 전략 질문 | 〃(comp 문서 재사용) | ✅ 〃 | ✅ "메타 질문이면 OP>S>A 우선 언급"(2026-08-07) |
-| 아이템 추천 | `champion_item_builds.win_rate`(존재함) | ❌ 미반영(순수 임베딩 거리) | ❌ 정렬 지시 없음 |
+| 아이템 추천 | `champion_item_builds.win_rate`(존재함) | ❌ 미반영(순수 검색 관련도 — CHAT-36 이전엔 임베딩 거리, 이후 pg_trgm) | ❌ 정렬 지시 없음 |
 | 증강체 추천 | 없음 — `augments.tier`는 강함이 아니라 드랍 확률 등급(gold/silver/prism), 승률 데이터 자체가 미수집 | - | is_legend_related 승률 비노출 규칙만 있음(정렬 규칙 아님, policies.md 1번) |
 | 일반 게임 정보(CHAT-17) | 내부 DB 랭킹 시그널 자체가 없음 — Tavily 검색 결과 자체 관련도 순서를 그대로 사용 | 해당 없음(내부 검색 미사용) | 출처 URL 필수 명시, 완곡한 표현(WEB_SEARCH_SYSTEM_PROMPT) |
 
