@@ -16,7 +16,7 @@
 | `comps` | id, patch_version, name, tier_rank, rank_tier, avg_place, play_rate, win_rate(nullable), playstyle_text, **is_active**, updated_at | 메타 조합. `rank_tier`는 API-02 구현 중 PRD의 "랭크별 필터" 요구사항에 맞춰 추가(기본값 "all") — 실제 op.gg 랭크 구간 값은 DATA-05 스파이크 완료 후 재확정 필요. `is_active`(기본 true, DATA-17)는 op.gg 상위 10위 밖으로 밀려난 조합의 소프트 삭제 플래그 — 하드 삭제하면 comp_champions/comp_augments/match_analyses.matched_comp_id/meta_document_embeddings 참조가 끊겨 플래그만 끔(사이트 티어리스트는 API-02가 필터, 챗봇 RAG는 CHAT-18이 랭킹 후순위+캐비엇으로 처리) |
 | `comp_champions` | comp_id, champion_id, is_carry, recommended_items(jsonb) | 조합-챔피언 매핑, 캐리 가중치 계산(PGA-04)의 기준 |
 | `comp_augments` | comp_id, augment_id, priority | 조합-증강체 매핑 |
-| `champion_item_builds` | id, champion_id, patch_version, item_combination(jsonb), play_rate, avg_place, win_rate | 챔피언별 아이템 빌드 |
+| `champion_item_builds` | id, champion_id, patch_version, item_combination(jsonb), play_rate, avg_place, win_rate | 챔피언별 아이템 빌드. 패치당 6~7만 행(op.gg 원본 그대로)으로 가장 큰 테이블. **DATA-25**: `(patch_version, champion_id)` 인덱스, 배치는 패치 단위 DELETE 1회 + 5,000행 청크 INSERT로 교체, 매일 배치 끝에 현재 패치·최근 2개 패치 외 행 정리(`prune_old_item_builds`) |
 | `match_analyses` | id, match_id, puuid, patch_version, comp_deviation, item_concentration, augment_synergy, matched_comp_id(FK comps.id, nullable), coaching_text, created_at | 사후 패인 분석 결과 캐시. 동일 match_id+puuid 재요청 시 재사용(PGA-03). matched_comp_id는 매칭되는 메타 조합이 없을 수 있어 nullable(DATA-03에서 확정) |
 
 ## 검색 문서 (CHAT-36부터 pg_trgm 텍스트 검색, 이전엔 pgvector)

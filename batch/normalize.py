@@ -16,7 +16,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -786,28 +786,57 @@ def upsert_comp_traits(
     session.execute(stmt)
 
 
-def replace_champion_item_builds(
+# DATA-25: 운영 패치당 빌드가 6~7만 행이라 한 INSERT에 다 넣으면 psycopg 파라미터
+# 한도(65,535 — 행당 컬럼 6개)를 넘는다. 5,000행(파라미터 3만 개) 단위로 나눈다.
+ITEM_BUILD_INSERT_CHUNK_SIZE = 5000
+
+
+def replace_patch_item_builds(
     session: Session,
-    champion_id: int,
     patch_version: str,
-    rows: list[dict[str, Any]],
+    rows_by_champion_id: dict[int, list[dict[str, Any]]],
 ) -> None:
     """champion_item_builds는 안정적인 자연키가 없어(빌드 조합이 매번 순위가
-    바뀔 수 있음) 챔피언·패치 단위로 기존 행을 지우고 새로 넣는다(replace-set)."""
-    from sqlalchemy import delete
+    바뀔 수 있음) 기존 행을 지우고 새로 넣는다(replace-set).
 
+    DATA-25(2026-10-26 Supabase Disk IO 경고): 원래 챔피언마다 DELETE를 따로
+    실행했는데(실행당 약 65회), 인덱스가 없어 매번 테이블 전체(40만 행)를 순차
+    스캔했다. 이제 패치 단위 DELETE 1회 + 청크 INSERT로 교체한다 — 이번 입력에
+    없는 챔피언의 옛 빌드도 함께 지워져 패치 전체가 응답과 정확히 일치한다."""
     session.execute(
         delete(models.ChampionItemBuild).where(
-            models.ChampionItemBuild.champion_id == champion_id,
-            models.ChampionItemBuild.patch_version == patch_version,
+            models.ChampionItemBuild.patch_version == patch_version
         )
     )
-    if rows:
+    values = [
+        {**row, "champion_id": champion_id, "patch_version": patch_version}
+        for champion_id, rows in rows_by_champion_id.items()
+        for row in rows
+    ]
+    for start in range(0, len(values), ITEM_BUILD_INSERT_CHUNK_SIZE):
         session.execute(
             pg_insert(models.ChampionItemBuild).values(
-                [
-                    {**row, "champion_id": champion_id, "patch_version": patch_version}
-                    for row in rows
-                ]
+                values[start : start + ITEM_BUILD_INSERT_CHUNK_SIZE]
             )
         )
+
+
+def prune_old_item_builds(session: Session, keep: int = 2) -> int:
+    """DATA-25: patches.id(감지 순서) 기준 최근 keep개 패치와 현재 패치(is_current)를
+    제외한 지난 패치의 빌드 행을 지운다. 화면·챗봇은 현재 패치만 쓰고 직전
+    패치는 승격 실패 시 되돌릴 여지로 남긴다. 지운 행 수를 반환한다."""
+    recent_versions = (
+        select(models.Patch.version).order_by(models.Patch.id.desc()).limit(keep)
+    )
+    current_versions = select(models.Patch.version).where(
+        models.Patch.is_current.is_(True)
+    )
+    result = session.execute(
+        delete(models.ChampionItemBuild).where(
+            ~or_(
+                models.ChampionItemBuild.patch_version.in_(recent_versions),
+                models.ChampionItemBuild.patch_version.in_(current_versions),
+            )
+        )
+    )
+    return result.rowcount

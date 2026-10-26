@@ -31,7 +31,8 @@ from normalize import (
     format_item_stats,
     item_rows,
     mark_stale_comps_inactive,
-    replace_champion_item_builds,
+    prune_old_item_builds,
+    replace_patch_item_builds,
     trait_rows,
     upsert_augments,
     upsert_champions,
@@ -1073,49 +1074,157 @@ def test_upsert_comps_reactivates_previously_inactive_comp(
     assert db_session.get(models.Comp, comp_ids["comp-returns"]).is_active is True
 
 
-def test_replace_champion_item_builds_swaps_full_set(db_session: Session) -> None:
-    champion_ids = upsert_champions(
-        db_session,
-        "17.8",
-        [{"riot_champion_id": "TFT17_Z", "name_kr": "제트", "name_en": "Z", "cost": 3}],
-    )
-    db_session.commit()
-    champion_id = champion_ids["TFT17_Z"]
+def _build_row(item: str, play_rate: float = 0.1) -> dict:
+    return {
+        "item_combination": [item],
+        "play_rate": play_rate,
+        "avg_place": 4.0,
+        "win_rate": 0.2,
+    }
 
-    replace_champion_item_builds(
-        db_session,
-        champion_id,
-        "17.8",
-        [
-            {
-                "item_combination": ["A"],
-                "play_rate": 0.1,
-                "avg_place": 4.0,
-                "win_rate": 0.2,
-            }
-        ],
-    )
-    db_session.commit()
 
-    replace_champion_item_builds(
-        db_session,
-        champion_id,
-        "17.8",
-        [
-            {
-                "item_combination": ["B"],
-                "play_rate": 0.3,
-                "avg_place": 3.5,
-                "win_rate": 0.25,
-            }
-        ],
-    )
-    db_session.commit()
-
-    builds = db_session.scalars(
-        select(models.ChampionItemBuild).where(
-            models.ChampionItemBuild.champion_id == champion_id
-        )
+def _builds(db_session: Session, patch_version: str) -> list:
+    return db_session.scalars(
+        select(models.ChampionItemBuild)
+        .where(models.ChampionItemBuild.patch_version == patch_version)
+        .order_by(models.ChampionItemBuild.id)
     ).all()
-    assert len(builds) == 1
-    assert builds[0].item_combination == ["B"]
+
+
+def _two_champions(db_session: Session, patch_version: str) -> dict[str, int]:
+    ids = upsert_champions(
+        db_session,
+        patch_version,
+        [
+            {
+                "riot_champion_id": "TFT17_Z",
+                "name_kr": "제트",
+                "name_en": "Z",
+                "cost": 3,
+            },
+            {
+                "riot_champion_id": "TFT17_Y",
+                "name_kr": "와이",
+                "name_en": "Y",
+                "cost": 2,
+            },
+        ],
+    )
+    db_session.commit()
+    return ids
+
+
+def test_replace_patch_item_builds_swaps_full_set(db_session: Session) -> None:
+    ids = _two_champions(db_session, "17.8")
+
+    replace_patch_item_builds(
+        db_session,
+        "17.8",
+        {ids["TFT17_Z"]: [_build_row("A")], ids["TFT17_Y"]: [_build_row("C")]},
+    )
+    db_session.commit()
+    replace_patch_item_builds(db_session, "17.8", {ids["TFT17_Z"]: [_build_row("B")]})
+    db_session.commit()
+
+    builds = _builds(db_session, "17.8")
+    # DATA-25: 패치 단위 교체 — 이번 입력에 없는 챔피언(와이)의 옛 빌드도 지워진다.
+    assert [(b.champion_id, b.item_combination) for b in builds] == [
+        (ids["TFT17_Z"], ["B"])
+    ]
+
+
+def test_replace_patch_item_builds_leaves_other_patches_untouched(
+    db_session: Session,
+) -> None:
+    old_ids = _two_champions(db_session, "17.8")
+    new_ids = _two_champions(db_session, "17.9")
+    replace_patch_item_builds(
+        db_session, "17.8", {old_ids["TFT17_Z"]: [_build_row("OLD")]}
+    )
+    db_session.commit()
+
+    replace_patch_item_builds(
+        db_session, "17.9", {new_ids["TFT17_Z"]: [_build_row("NEW")]}
+    )
+    db_session.commit()
+
+    assert [b.item_combination for b in _builds(db_session, "17.8")] == [["OLD"]]
+    assert [b.item_combination for b in _builds(db_session, "17.9")] == [["NEW"]]
+
+
+def test_replace_patch_item_builds_inserts_all_rows_across_chunks(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """운영 패치당 빌드가 6~7만 행이라 한 INSERT에 다 넣으면 드라이버 파라미터
+    한도(65,535)를 넘는다 — 청크로 나눠 넣어도 전부 적재되는지 확인한다."""
+    import normalize
+
+    monkeypatch.setattr(normalize, "ITEM_BUILD_INSERT_CHUNK_SIZE", 3)
+    ids = _two_champions(db_session, "17.8")
+
+    replace_patch_item_builds(
+        db_session,
+        "17.8",
+        {
+            ids["TFT17_Z"]: [_build_row(f"Z{i}") for i in range(5)],
+            ids["TFT17_Y"]: [_build_row(f"Y{i}") for i in range(3)],
+        },
+    )
+    db_session.commit()
+
+    assert len(_builds(db_session, "17.8")) == 8
+
+
+def test_replace_patch_item_builds_with_empty_input_clears_patch(
+    db_session: Session,
+) -> None:
+    ids = _two_champions(db_session, "17.8")
+    replace_patch_item_builds(db_session, "17.8", {ids["TFT17_Z"]: [_build_row("A")]})
+    db_session.commit()
+
+    replace_patch_item_builds(db_session, "17.8", {})
+    db_session.commit()
+
+    assert _builds(db_session, "17.8") == []
+
+
+def test_prune_old_item_builds_keeps_only_latest_patches(db_session: Session) -> None:
+    """DATA-25: 지난 패치 빌드가 정리 없이 쌓여(운영 40만 행) 디스크 IO를 키웠다 —
+    patches.id 기준 최근 keep개 패치의 빌드만 남긴다."""
+    ensure_patch(db_session, version="18.0", set_number=18)  # 가장 최근 감지
+    db_session.commit()
+    for patch_version in ("17.8", "17.9", "18.0"):
+        ids = _two_champions(db_session, patch_version)
+        replace_patch_item_builds(
+            db_session, patch_version, {ids["TFT17_Z"]: [_build_row(patch_version)]}
+        )
+    db_session.commit()
+
+    deleted = prune_old_item_builds(db_session, keep=2)
+    db_session.commit()
+
+    assert deleted == 1
+    assert _builds(db_session, "17.8") == []
+    assert len(_builds(db_session, "17.9")) == 1
+    assert len(_builds(db_session, "18.0")) == 1
+
+
+def test_prune_old_item_builds_always_keeps_current_patch(db_session: Session) -> None:
+    """is_current가 최근 keep개 밖에 있더라도(예: 새 패치가 감지만 되고 아직
+    승격 전) 화면에 보이는 현재 패치의 빌드는 지우지 않는다."""
+    ensure_patch(db_session, version="18.0", set_number=18)
+    ensure_patch(db_session, version="18.1", set_number=18)
+    db_session.execute(
+        models.Patch.__table__.update()
+        .where(models.Patch.version == "17.8")
+        .values(is_current=True)
+    )
+    db_session.commit()
+    ids = _two_champions(db_session, "17.8")
+    replace_patch_item_builds(db_session, "17.8", {ids["TFT17_Z"]: [_build_row("cur")]})
+    db_session.commit()
+
+    prune_old_item_builds(db_session, keep=2)
+    db_session.commit()
+
+    assert len(_builds(db_session, "17.8")) == 1
