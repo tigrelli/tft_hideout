@@ -121,6 +121,23 @@ describe("ItemIconRow", () => {
     });
   });
 
+  it("FE-19: 아이콘 로드에 실패하면(외부 CDN 장애) 이니셜 폴백으로 바뀐다", async () => {
+    render(
+      <ItemIconRow
+        names={["정의의 손길"]}
+        icons={["https://x.invalid/hoj.png"]}
+      />,
+    );
+    fireEvent.error(screen.getByAltText("정의의 손길"));
+
+    expect(screen.queryByAltText("정의의 손길")).not.toBeInTheDocument();
+    expect(screen.getByTitle("정의의 손길")).toHaveTextContent("정");
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+  });
+
   it("완성 아이템에 마우스를 올리면 조합 재료를 이미지+이름으로 보여준다", async () => {
     const trigger = await renderAndWaitForRecipe({
       names: ["무한의 대검"],

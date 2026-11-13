@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { ChampionInComp } from "@/types/catalog";
 import { ItemIconRow } from "@/components/comp-detail/item-icon-row";
+import { FallbackImage } from "@/components/common/fallback-image";
 
 // 태블릿·데스크톱(md 이상) 전용 헥스 배치도.
 //
@@ -56,12 +56,18 @@ function HexIcon({ champion }: { champion: ChampionInComp }) {
       >
         {champion.square_icon_url ? (
           <div className="absolute inset-3 ring-2 ring-inset ring-primary">
-            <Image
+            {/* FE-19: 외부 CDN 장애로 불러오지 못하면 링 안에 이름 두 글자를 표시 */}
+            <FallbackImage
               src={champion.square_icon_url}
               alt={champion.name_kr}
               fill
               sizes="112px"
               className="object-cover"
+              fallback={
+                <span className="flex h-full w-full items-center justify-center text-caption text-on-brand">
+                  {champion.name_kr.slice(0, 2)}
+                </span>
+              }
             />
           </div>
         ) : (

@@ -56,6 +56,16 @@ describe("ChampionSelect — 텍스트 입력 자동완성", () => {
     );
   });
 
+  it("FE-19: 아이콘 로드에 실패하면 이니셜 폴백으로 바뀐다", () => {
+    render(
+      <ChampionSelect champions={champions} value={10} onChange={vi.fn()} />,
+    );
+    fireEvent.error(screen.getByAltText(""));
+
+    expect(screen.queryByAltText("")).not.toBeInTheDocument();
+    expect(screen.getByText("요")).toBeInTheDocument();
+  });
+
   it("아이콘이 없으면 이니셜 폴백을 보여준다", () => {
     render(
       <ChampionSelect champions={champions} value={20} onChange={vi.fn()} />,

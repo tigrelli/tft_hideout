@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { HexBoard } from "@/components/comp-detail/hex-board";
 import type { ChampionInComp } from "@/types/catalog";
 
@@ -67,6 +67,23 @@ describe("HexBoard — cell_x/cell_y 없으면 is_carry 기반 휴리스틱 배�
       />,
     );
     expect(screen.getByText("징크")).toBeInTheDocument();
+  });
+
+  it("FE-19: 챔피언 이미지 로드에 실패하면 이름 앞 두 글자 폴백으로 바뀐다", () => {
+    render(
+      <HexBoard
+        champions={[
+          makeChampion({
+            name_kr: "장로 드래곤",
+            square_icon_url: "https://x.invalid/elder.png",
+          }),
+        ]}
+      />,
+    );
+    fireEvent.error(screen.getByAltText("장로 드래곤"));
+
+    expect(screen.queryByAltText("장로 드래곤")).not.toBeInTheDocument();
+    expect(screen.getByText("장로")).toBeInTheDocument();
   });
 
   it("일부 챔피언만 좌표가 있으면(구 데이터 혼재) 전체를 휴리스틱 배치로 폴백한다", () => {

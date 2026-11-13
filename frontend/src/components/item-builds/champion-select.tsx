@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
+import { FallbackImage } from "@/components/common/fallback-image";
 
 export interface ChampionOption {
   championId: number;
@@ -100,19 +100,18 @@ export function ChampionSelect({
               aria-hidden="true"
               className="pointer-events-none absolute left-2 flex h-6 w-6 items-center justify-center overflow-hidden rounded-sm"
             >
-              {selected.squareIconUrl ? (
-                <Image
-                  src={selected.squareIconUrl}
-                  alt=""
-                  width={24}
-                  height={24}
-                  className="object-cover"
-                />
-              ) : (
-                <span className="text-caption text-text-tertiary">
-                  {selected.nameKr.slice(0, 1)}
-                </span>
-              )}
+              <FallbackImage
+                src={selected.squareIconUrl}
+                alt=""
+                width={24}
+                height={24}
+                className="object-cover"
+                fallback={
+                  <span className="text-caption text-text-tertiary">
+                    {selected.nameKr.slice(0, 1)}
+                  </span>
+                }
+              />
             </span>
           )}
           <input
@@ -163,19 +162,18 @@ export function ChampionSelect({
                   aria-hidden="true"
                   className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-sm bg-surface-page"
                 >
-                  {champion.squareIconUrl ? (
-                    <Image
-                      src={champion.squareIconUrl}
-                      alt=""
-                      width={24}
-                      height={24}
-                      className="object-cover"
-                    />
-                  ) : (
-                    <span className="text-caption text-text-tertiary">
-                      {champion.nameKr.slice(0, 1)}
-                    </span>
-                  )}
+                  <FallbackImage
+                    src={champion.squareIconUrl}
+                    alt=""
+                    width={24}
+                    height={24}
+                    className="object-cover"
+                    fallback={
+                      <span className="text-caption text-text-tertiary">
+                        {champion.nameKr.slice(0, 1)}
+                      </span>
+                    }
+                  />
                 </span>
                 {champion.nameKr}
               </button>

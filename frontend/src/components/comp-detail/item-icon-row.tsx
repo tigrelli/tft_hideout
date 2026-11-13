@@ -1,11 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Image from "next/image";
+import { FallbackImage } from "@/components/common/fallback-image";
 import { useItemRecipes } from "@/lib/use-item-recipes";
 
 // 챔피언 밑에 추천 아이템을 텍스트 대신 이미지로 보여준다(PM 요청 2026-08-06).
-// 아이콘이 없는 아이템(square_icon_url null)은 이름 첫 글자 폴백 타일로 대체한다.
+// 아이콘이 없는 아이템(square_icon_url null)이나 불러오지 못한 아이콘(FE-19,
+// 외부 CDN 장애 등)은 이름 첫 글자 폴백 타일로 대체한다.
 // 완성 아이템(재료 2개 이상)은 데스크톱 hover·모바일 tap 시 조합 재료를
 // 이미지+이름으로 보여주는 팝오버가 뜬다(PM 요청 2026-08-06).
 export function ItemIconRow({
@@ -82,23 +83,22 @@ export function ItemIconRow({
                 (hasRecipe ? "cursor-pointer" : "cursor-default")
               }
             >
-              {icons[index] ? (
-                <Image
-                  src={icons[index] as string}
-                  alt={name}
-                  width={size}
-                  height={size}
-                  className="rounded-sm border border-border-default object-cover"
-                />
-              ) : (
-                <span
-                  title={name}
-                  style={{ width: size, height: size }}
-                  className="flex items-center justify-center rounded-sm border border-border-default bg-surface-page text-caption text-text-tertiary"
-                >
-                  {name.slice(0, 1)}
-                </span>
-              )}
+              <FallbackImage
+                src={icons[index]}
+                alt={name}
+                width={size}
+                height={size}
+                className="rounded-sm border border-border-default object-cover"
+                fallback={
+                  <span
+                    title={name}
+                    style={{ width: size, height: size }}
+                    className="flex items-center justify-center rounded-sm border border-border-default bg-surface-page text-caption text-text-tertiary"
+                  >
+                    {name.slice(0, 1)}
+                  </span>
+                }
+              />
             </span>
 
             {isActive && hasRecipe && (
@@ -112,19 +112,18 @@ export function ItemIconRow({
                       key={`${component.riot_item_id}-${componentIndex}`}
                       title={component.name_kr}
                     >
-                      {component.square_icon_url ? (
-                        <Image
-                          src={component.square_icon_url}
-                          alt={component.name_kr}
-                          width={32}
-                          height={32}
-                          className="rounded-sm border border-border-default object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-8 w-8 items-center justify-center rounded-sm border border-border-default bg-surface-page text-caption text-text-tertiary">
-                          {component.name_kr.slice(0, 1)}
-                        </span>
-                      )}
+                      <FallbackImage
+                        src={component.square_icon_url}
+                        alt={component.name_kr}
+                        width={32}
+                        height={32}
+                        className="rounded-sm border border-border-default object-cover"
+                        fallback={
+                          <span className="flex h-8 w-8 items-center justify-center rounded-sm border border-border-default bg-surface-page text-caption text-text-tertiary">
+                            {component.name_kr.slice(0, 1)}
+                          </span>
+                        }
+                      />
                     </span>
                   ))}
                 </div>

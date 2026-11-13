@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CompCard } from "@/components/tierlist/comp-card";
 import type { CompSummary } from "@/types/catalog";
 
@@ -56,6 +56,16 @@ describe("CompCard", () => {
     expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(
       "https://raw.communitydragon.org/fake-yone.png",
     );
+  });
+
+  it("FE-19: 이미지 로드에 실패하면 점 placeholder로 바뀌고 개수는 유지된다", () => {
+    const { container } = render(<CompCard comp={comp} />);
+    fireEvent.error(screen.getByAltText("요네"));
+
+    expect(screen.queryByAltText("요네")).not.toBeInTheDocument();
+    const carryList = screen.getByLabelText("캐리 챔피언 3명");
+    expect(carryList.children).toHaveLength(3);
+    expect(container.querySelectorAll("img")).toHaveLength(0);
   });
 
   it("square_icon_url이 없으면 점 placeholder를 렌더링한다(이미지 아님)", () => {
