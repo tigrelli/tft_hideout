@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { CompSummary } from "@/types/catalog";
 import { TIER_CLASS, TierBadge } from "@/components/tierlist/tier-badge";
+import { FallbackImage } from "@/components/common/fallback-image";
 
 // 화면설계서 2.1: Card `comp-card`, 클릭 시 comp-detail로 이동. URL은 IA v1.2
 // 원문(`/comps/{comp_id}`) 대신 쿼리스트링(`/comps?id=`)을 쓴다 — 정적 export는
@@ -33,23 +33,20 @@ export function CompCard({ comp }: { comp: CompSummary }) {
           className="mt-2 flex gap-2"
           aria-label={`캐리 챔피언 ${comp.carry_champions.length}명`}
         >
-          {comp.carry_champions.map((champion) =>
-            champion.square_icon_url ? (
-              <Image
-                key={champion.champion_id}
-                src={champion.square_icon_url}
-                alt={champion.name_kr}
-                width={64}
-                height={64}
-                className="rounded-card border-2 border-accent-carry object-cover"
-              />
-            ) : (
-              <span
-                key={champion.champion_id}
-                className="h-16 w-16 rounded-card border-2 border-accent-carry bg-border-default"
-              />
-            ),
-          )}
+          {comp.carry_champions.map((champion) => (
+            // FE-19: 주소가 없거나 불러오지 못하면(외부 CDN 장애) 점 placeholder
+            <FallbackImage
+              key={champion.champion_id}
+              src={champion.square_icon_url}
+              alt={champion.name_kr}
+              width={64}
+              height={64}
+              className="rounded-card border-2 border-accent-carry object-cover"
+              fallback={
+                <span className="h-16 w-16 rounded-card border-2 border-accent-carry bg-border-default" />
+              }
+            />
+          ))}
         </div>
 
         <p className="mt-2 text-caption text-text-secondary">

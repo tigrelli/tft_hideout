@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { AugmentCard } from "@/components/augments/augment-card";
 import type { AugmentSummary } from "@/types/catalog";
 
@@ -63,6 +63,14 @@ describe("AugmentCard — Legend 승률 비노출 정책", () => {
     expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(
       "augment.png",
     );
+  });
+
+  it("FE-19: 이미지 로드에 실패하면 이름 첫 글자 폴백으로 바뀐다", () => {
+    render(<AugmentCard augment={baseAugment} />);
+    fireEvent.error(screen.getByAltText("일급 재사공"));
+
+    expect(screen.queryByAltText("일급 재사공")).not.toBeInTheDocument();
+    expect(screen.getByText("일")).toBeInTheDocument();
   });
 
   it("image_url이 없으면 이름 첫 글자 폴백을 렌더링한다", () => {

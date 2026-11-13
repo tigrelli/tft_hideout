@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { AugmentSummary } from "@/types/catalog";
 import { AugmentTierBadge } from "@/components/augments/augment-tier-badge";
+import { FallbackImage } from "@/components/common/fallback-image";
 
 // 화면설계서 2.4: Card `augment-card` {"fields":["이름","티어","설명",
 // "승률(is_legend_related=true면 숨김)"]}, state default/no-winrate. 검증 규칙:
@@ -15,19 +15,18 @@ export function AugmentCard({ augment }: { augment: AugmentSummary }) {
   return (
     <div className="rounded-card border border-border-default bg-surface-card p-4">
       <div className="flex items-center gap-3">
-        {augment.image_url ? (
-          <Image
-            src={augment.image_url}
-            alt={augment.name_kr}
-            width={48}
-            height={48}
-            className="shrink-0 rounded-card border border-border-default object-cover"
-          />
-        ) : (
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-card border border-border-default bg-surface-page text-caption text-text-tertiary">
-            {augment.name_kr.slice(0, 1)}
-          </span>
-        )}
+        <FallbackImage
+          src={augment.image_url}
+          alt={augment.name_kr}
+          width={48}
+          height={48}
+          className="shrink-0 rounded-card border border-border-default object-cover"
+          fallback={
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-card border border-border-default bg-surface-page text-caption text-text-tertiary">
+              {augment.name_kr.slice(0, 1)}
+            </span>
+          }
+        />
         <div className="flex min-w-0 flex-1 items-center justify-between">
           <span className="text-h2 text-text-primary">{augment.name_kr}</span>
           <AugmentTierBadge tier={augment.tier} />

@@ -66,3 +66,10 @@ CHAT-11(후속질문 동적 생성) 배포 후 스모크 체크 중 발견. 상�
 - `tft-hideout-backend`(Render) 환경변수에서 `HUGGINGFACE_API_KEY`·`GROQ_API_KEY`가 어느 시점엔가 빠져 있었다(원인 불명 — 수동 설정값이라 SET-09 등록 이후 재설정된 적 없이 계속 있어야 정상). PM이 두 값을 다시 등록·재배포해 해결.
 - 위 장애로 실패한 첫 응답(폴백 메시지)이 CHAT-08 캐시에 그대로 저장되는 별도 코드 버그가 있었음을 발견 → `fix/chat08-cache-poisoning`(PR #15)로 수정, 운영 DB에 이미 저장된 오염 캐시 1행은 1회성 스크립트(레포 미커밋, `chat_answer_cache.id=4`)로 내용 확인 후 삭제.
 - **후속 조치 필요**: `HUGGINGFACE_API_KEY`/`GROQ_API_KEY`가 왜 빠졌는지는 결국 확인 못 함. Render 대시보드에서 팀원 접근 권한/최근 변경 이력을 확인하거나, 향후 유사 증상(챗봇이 계속 폴백만 응답) 재발 시 이 문서를 참고해 (1) Render 환경변수 존재 여부 (2) `chat_answer_cache` 오염 여부 순으로 확인할 것.
+
+## SET-18 (2026-11-01) — Supabase Disk IO 고갈 원인 제거
+
+상세: `docs/verification/SET-18-작업결과.md`.
+
+- PostgREST 에러 중단: 운영 DB에 빈 스키마 `api` 생성 + PM이 대시보드 Data API → Exposed schemas를 `api` 단독으로 저장(Exposed tables 0/21, functions 0/31). 이후 PostgREST가 재접속해 `LISTEN "pgrst"` 정상 대기, 100초 실측 rollback 0건, 키 없는 `GET /rest/v1/` 401, 운영 API 200.
+- 임시 파일 IO 중단: `pg_stat_statements` 쿼리 텍스트 101MB(그중 `INSERT INTO champion_item_builds` 1,556개 항목이 100MB)를 `pg_stat_statements_reset()`으로 초기화(PM 승인). 초기화 전 100초당 임시파일 3~7개·230~570MB → 초기화 후 3분간 0개·0MB.
